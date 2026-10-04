@@ -2767,7 +2767,7 @@ else:
             f"""
             <div class='glass-card' style='text-align:center;'>
                 <div class='glass-label'>Premium Plan</div>
-                <div class='glass-value' style='color:#FFC94A;'>₹299 / Mo</div>
+                <div class='glass-value' style='color:#FFC94A;'>₹299 / Month</div>
                 <div class='glass-sub'>Instant Activation via UPI</div>
             </div>
             """,
