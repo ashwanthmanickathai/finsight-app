@@ -7,8 +7,10 @@ First run creates finsight.db (SQLite) in this folder automatically.
 Optional export features need: pip install openpyxl fpdf2
 """
 
+import base64
 import binascii
 import hashlib
+import html as html_lib
 import os
 import re
 import sqlite3
@@ -21,6 +23,17 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+# Streamlit's canvas widgets (st.dataframe / st.data_editor / progress) take colours from the Streamlit
+# THEME, not from CSS. .streamlit/config.toml is the reliable way to set it; this is a best-effort fallback.
+# Old line block:
+# for _k, _v in {"base": "light", "primaryColor": "#00D4FF", "backgroundColor": "#FFFFFF", "secondaryBackgroundColor": "#F8FAFC", "textColor": "#0F172A"}.items():
+
+# New Refined Line:
+try:
+    for _k, _v in {"base": "light", "primaryColor": "#10B981", "backgroundColor": "#FFFFFF", "secondaryBackgroundColor": "#F4F7F6", "textColor": "#111C24"}.items():
+        st._config.set_option(f"theme.{_k}", _v)
+except Exception:
+    pass
 # ============================================================
 # PAGE CONFIG
 # ============================================================
@@ -1315,14 +1328,14 @@ def build_whatsapp_link(phone, message):
 
 
 MOOD_STYLES = {
-    "green": dict(color="#00E676", bg_a="rgba(0,230,118,0.14)", bg_b="rgba(0,230,118,0.02)",
-                  border="rgba(0,230,118,0.35)", glow="rgba(0,230,118,0.45)", badge_bg="rgba(0,230,118,0.14)"),
-    "yellow": dict(color="#FFC94A", bg_a="rgba(255,201,74,0.14)", bg_b="rgba(255,201,74,0.02)",
-                   border="rgba(255,201,74,0.35)", glow="rgba(255,201,74,0.40)", badge_bg="rgba(255,201,74,0.14)"),
-    "red": dict(color="#FF3B5C", bg_a="rgba(255,59,92,0.14)", bg_b="rgba(255,59,92,0.02)",
-                border="rgba(255,59,92,0.35)", glow="rgba(255,59,92,0.45)", badge_bg="rgba(255,59,92,0.14)"),
-    "neutral": dict(color="#7C8BA6", bg_a="rgba(255,255,255,0.05)", bg_b="rgba(255,255,255,0.01)",
-                     border="rgba(255,255,255,0.10)", glow="rgba(255,255,255,0.10)", badge_bg="rgba(255,255,255,0.06)"),
+    "green": dict(color="#059669", bg_a="rgba(16,185,129,0.10)", bg_b="rgba(16,185,129,0.015)",
+                  border="rgba(16,185,129,0.30)", glow="rgba(16,185,129,0.22)", badge_bg="rgba(16,185,129,0.10)"),
+    "yellow": dict(color="#B45309", bg_a="rgba(245,158,11,0.11)", bg_b="rgba(245,158,11,0.015)",
+                   border="rgba(245,158,11,0.34)", glow="rgba(245,158,11,0.22)", badge_bg="rgba(245,158,11,0.12)"),
+    "red": dict(color="#E11D48", bg_a="rgba(244,63,94,0.09)", bg_b="rgba(244,63,94,0.015)",
+                border="rgba(244,63,94,0.30)", glow="rgba(244,63,94,0.20)", badge_bg="rgba(244,63,94,0.09)"),
+    "neutral": dict(color="#64748B", bg_a="rgba(17,24,39,0.03)", bg_b="rgba(17,24,39,0.005)",
+                     border="rgba(17,24,39,0.10)", glow="rgba(17,24,39,0.08)", badge_bg="rgba(17,24,39,0.05)"),
 }
 
 
@@ -1330,156 +1343,248 @@ MOOD_STYLES = {
 # STYLE
 # ============================================================
 
-st.markdown(
+def inject_global_css():
+    """One light design system for the landing deck AND the workspace.
+
+    Rules this stylesheet enforces:
+      * every card / input / button gets ONE 1px #E2E8F0 border, a 12px radius and the same
+        soft ambient shadow — no stacked, spread-ring or offset (2px 2px 0) shadows anywhere;
+      * inputs are styled on their OUTER Streamlit wrapper only, and every inner layer is
+        flattened — that double border is what made fields look boxy / pixelated before.
     """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
 
-    :root {
-        --bg: #04060C; --panel: #0A0F1A; --border: rgba(255,255,255,0.08);
-        --text: #F5F7FB; --muted: #7C8BA6; --cyan: #00D4FF; --green: #00E676;
-        --red: #FF3B5C; --yellow: #FFC94A; --purple: #B388FF;
-    }
-    html, body, [data-testid="stAppViewContainer"], .stApp {
-        font-family: "Inter", sans-serif;
-        background:
-            radial-gradient(circle at 85% -10%, rgba(0,212,255,0.14), transparent 32%),
-            radial-gradient(circle at -5% 20%, rgba(179,136,255,0.10), transparent 28%),
-            radial-gradient(circle at 50% 100%, rgba(0,230,118,0.06), transparent 35%),
-            var(--bg);
-        color: var(--text);
-    }
-    [data-testid="stHeader"] { background: transparent; }
-    [data-testid="stDecoration"], [data-testid="stToolbar"] { display: none; }
-    footer, #MainMenu { visibility: hidden; }
-    .block-container { max-width: 1550px; padding: 2rem 3rem 5rem 3rem; }
-    [data-testid="stSidebar"] { background: #060811; border-right: 1px solid rgba(255,255,255,0.07); }
-    [data-testid="stSidebar"] label { color: #93A2BE !important; }
-    h1, h2, h3 { color: #F5F7FB !important; letter-spacing: -0.7px; }
-    h1 { font-weight: 900 !important; }
-    h2, h3 { font-weight: 700 !important; }
+        :root {
+            color-scheme: light;
+            --canvas: #FFFFFF; 
+            --canvas-soft: #F9FAFB; 
+            --panel: #F4F7F6;
+            --ink: #111C24; 
+            --ink-2: #2D3D4A; 
+            --muted: #6B7280; 
+            --faint: #9CA3AF;
+            --border: #E5E7EB; 
+            --border-soft: #F3F4F6;
+            --cyan: #10B981; 
+            --cyan-ink: #047857; 
+            --cyan-wash: rgba(16, 185, 129, 0.08);
+            --green: #10B981; 
+            --red: #EF4444; 
+            --amber: #F59E0B;
+            --radius: 12px;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+            --focus-glow: 0 0 14px rgba(16, 185, 129, 0.18);
+        }
 
-    [data-testid="stMetric"] {
-        background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015));
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 22px; min-height: 130px;
-        box-shadow: 0 18px 45px rgba(0,0,0,0.35);
-        transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-    }
-    [data-testid="stMetric"]:hover {
-        transform: translateY(-5px); border-color: rgba(0,212,255,0.35);
-        box-shadow: 0 22px 55px rgba(0,0,0,0.45), 0 0 30px rgba(0,212,255,0.30);
-    }
-    [data-testid="stMetricLabel"] { color: #7C8BA6 !important; font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase; }
-    [data-testid="stMetricValue"] { color: #F5F7FB !important; font-size: 27px !important; font-weight: 800 !important; font-family: "JetBrains Mono", monospace !important; }
 
-    .stTextInput input, .stNumberInput input, .stDateInput input, .stTextArea textarea {
-        background: rgba(255,255,255,0.03) !important; color: #F5F7FB !important;
-        border: 1px solid rgba(255,255,255,0.09) !important; border-radius: 11px !important;
-    }
-    [data-baseweb="select"] > div {
-        background: rgba(255,255,255,0.03) !important; border-color: rgba(255,255,255,0.09) !important; border-radius: 11px !important;
-    }
-    .stButton button, .stDownloadButton button {
-        min-height: 42px; border-radius: 11px !important; border: 1px solid rgba(255,255,255,0.09) !important;
-        background: rgba(255,255,255,0.05) !important; color: #E7ECF6 !important; font-weight: 700 !important;
-        transition: all 0.22s ease !important; box-shadow: 0 6px 18px rgba(0,0,0,0.25);
-    }
-    .stButton button:hover, .stDownloadButton button:hover {
-        border-color: rgba(0,212,255,0.45) !important; background: rgba(0,212,255,0.10) !important;
-        color: white !important; transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.35), 0 0 22px rgba(0,212,255,0.3);
-    }
-    [data-testid="stExpander"] {
-        background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.25);
-    }
-    [data-testid="stDataFrame"] {
-        border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden;
-        box-shadow: 0 14px 34px rgba(0,0,0,0.3);
-    }
-    [data-testid="stAlert"] { border-radius: 13px; }
-    hr { border-color: rgba(255,255,255,0.07) !important; }
+        /* ---------- canvas & typography ---------- */
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"], .stApp {
+            font-family: "Inter", -apple-system, "Segoe UI", sans-serif;
+            background: var(--canvas) !important; color: var(--ink);
+        }
+        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stDecoration"], [data-testid="stToolbar"] { display: none; }
+        footer, #MainMenu { visibility: hidden; }
+        .block-container { max-width: 1550px; padding: 2rem 3rem 5rem 3rem; }
 
-    .mood-hero {
-        display: flex; align-items: center; gap: 26px; padding: 28px 32px; border-radius: 24px;
-        border: 1px solid var(--mood-border, rgba(255,255,255,0.09));
-        background: linear-gradient(135deg, var(--mood-bg-a, rgba(255,255,255,0.05)), var(--mood-bg-b, rgba(255,255,255,0.01)));
-        box-shadow: 0 24px 60px rgba(0,0,0,0.4);
-        transition: box-shadow 0.35s ease, transform 0.35s ease;
-    }
-    .mood-hero:hover { transform: translateY(-4px); box-shadow: 0 28px 70px rgba(0,0,0,0.5), 0 0 55px var(--mood-glow, transparent); }
-    .mood-emoji { font-size: 84px; line-height: 1; filter: drop-shadow(0 0 22px var(--mood-glow, transparent)); animation: floaty 3.2s ease-in-out infinite; }
-    @keyframes floaty { 0%,100% { transform: translateY(0px);} 50% { transform: translateY(-8px);} }
-    .mood-text-title { font-size: 22px; font-weight: 800; color: var(--mood-color, #F5F7FB); margin-bottom: 4px; }
-    .mood-text-sub { color: #9AA7C2; font-size: 14px; }
-    .mood-badge {
-        display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 999px; font-size: 11px;
-        font-weight: 700; text-transform: uppercase; background: var(--mood-badge-bg, rgba(255,255,255,0.08));
-        color: var(--mood-color, #F5F7FB); border: 1px solid var(--mood-border, rgba(255,255,255,0.15));
-    }
-    .ticker-strip { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
-    .ticker-chip {
-        padding: 8px 16px; border-radius: 12px; background: rgba(255,255,255,0.035);
-        border: 1px solid rgba(255,255,255,0.08); font-family: "JetBrains Mono", monospace;
-        font-size: 13px; font-weight: 600; color: #C9D4EA; transition: all 0.2s ease;
-    }
-    .ticker-chip:hover { border-color: rgba(0,212,255,0.4); background: rgba(0,212,255,0.08); transform: translateY(-2px); }
-    .ticker-up { color: var(--green); }
-    .ticker-down { color: var(--red); }
-    .glass-card {
-        background: linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 20px; min-height: 118px;
-        box-shadow: 0 16px 40px rgba(0,0,0,0.3);
-        transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-    }
-    .glass-card:hover { transform: translateY(-5px); border-color: rgba(255,255,255,0.18); box-shadow: 0 22px 50px rgba(0,0,0,0.4); }
-    .glass-label { color: #7C8BA6; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .glass-value { font-size: 22px; font-weight: 800; margin: 6px 0 4px 0; font-family: "JetBrains Mono", monospace; }
-    .glass-sub { color: #9AA7C2; font-size: 13px; }
-    .plan-badge {
-        display:inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800;
-        text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .plan-free { background: rgba(255,255,255,0.08); color: #C9D4EA; border: 1px solid rgba(255,255,255,0.15); }
-    .plan-pro { background: rgba(255,201,74,0.15); color: #FFC94A; border: 1px solid rgba(255,201,74,0.35); }
-    .category-badge {
-        display:inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
-        background: rgba(0,212,255,0.12); color: #00D4FF; border: 1px solid rgba(0,212,255,0.30);
-    }
-    .section {
-        font-size: 19px; font-weight: 800; color: #F5F7FB; margin: 26px 0 4px 0; letter-spacing: -0.3px;
-    }
-    .helper { color: #7C8BA6; font-size: 13px; margin-bottom: 14px; }
-    .insight {
-        background: linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
-        font-size: 14px; color: #E7ECF6; box-shadow: 0 10px 26px rgba(0,0,0,0.25);
-        transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .insight:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.18); }
-    .insight span { color: #9AA7C2; }
-    .insight b { color: #F5F7FB; }
-    .action-item-red { border-left: 3px solid #FF3B5C; }
-    .action-item-yellow { border-left: 3px solid #FFC94A; }
-    .action-item-green { border-left: 3px solid #00E676; }
-    .health-score-ring {
-        text-align:center; min-height:170px; display:flex; flex-direction:column;
-        align-items:center; justify-content:center;
-    }
-    .why-row {
-        display:flex; justify-content:space-between; align-items:center; padding:8px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px;
-    }
-    .why-row:last-child { border-bottom: none; }
+        h1, h2, h3, h4, h5, h6,
+        [data-testid="stHeading"] *, [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
+        [data-testid="stMarkdownContainer"] h3, [data-testid="stMarkdownContainer"] h4, [data-testid="stMarkdownContainer"] h5 {
+            color: var(--ink) !important; letter-spacing: -0.6px;
+        }
+        h1 { font-weight: 900 !important; } h2, h3, h4, h5 { font-weight: 700 !important; }
+        [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { color: var(--ink-2); }
+        [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: var(--muted) !important; }
+        [data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] *, .stApp label { color: var(--ink-2) !important; font-weight: 600; }
+        hr { border-color: var(--border) !important; }
 
-    @media (max-width: 900px) {
-        .block-container { padding-left: 1rem; padding-right: 1rem; }
-        .mood-hero { flex-direction: column; text-align: center; }
-        .mood-emoji { font-size: 64px; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+        /* ---------- left navigation panel & settings boxes ---------- */
+        [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
+            background: var(--panel) !important;
+        }
+        [data-testid="stSidebar"] { border-right: 1px solid var(--border); }
+        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] * { color: var(--muted) !important; font-weight: 600; }
+
+        /* ---------- INPUTS: one border + one soft shadow, on the outer wrapper only ---------- */
+        .stApp [data-baseweb="input"],
+        .stApp [data-baseweb="textarea"],
+        .stApp [data-baseweb="select"] > div {
+            background: #FFFFFF !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius) !important;
+            box-shadow: var(--shadow) !important;
+            overflow: hidden;
+            transition: border-color .2s ease, box-shadow .2s ease;
+        }
+        /* flatten every inner layer so nothing draws a second box, ring or shadow */
+        .stApp [data-baseweb="base-input"],
+        .stApp [data-baseweb="input"] > div,
+        .stApp [data-baseweb="base-input"] input,
+        .stApp [data-baseweb="textarea"] textarea,
+        .stApp [data-baseweb="select"] input,
+        .stApp input[type="text"], .stApp input[type="password"], .stApp input[type="number"],
+        .stApp input[type="email"], .stApp input:not([type]), .stApp textarea {
+            background: transparent !important; border: none !important; box-shadow: none !important;
+            outline: none !important; color: var(--ink) !important; -webkit-text-fill-color: var(--ink);
+        }
+        .stApp [data-baseweb="base-input"], .stApp [data-baseweb="input"] > div { border-radius: 0 !important; }
+        .stApp [data-testid="stNumberInputContainer"]:has([data-baseweb="input"]) {
+            background: transparent !important; border: none !important; box-shadow: none !important;
+        }
+        .stApp [data-testid="stNumberInputStepUp"], .stApp [data-testid="stNumberInputStepDown"] {
+            background: transparent !important; border: none !important; box-shadow: none !important; color: var(--muted) !important;
+        }
+        .stApp [data-testid="stNumberInputStepUp"]:hover, .stApp [data-testid="stNumberInputStepDown"]:hover { background: var(--panel) !important; }
+        .stApp input::placeholder, .stApp textarea::placeholder { color: var(--faint) !important; -webkit-text-fill-color: var(--faint); opacity: 1; }
+        .stApp [data-baseweb="select"] [data-baseweb="tag"], .stApp [data-baseweb="select"] div { color: var(--ink); }
+        .stApp [data-baseweb="input"]:hover, .stApp [data-baseweb="textarea"]:hover, .stApp [data-baseweb="select"] > div:hover { border-color: #CBD5E1 !important; }
+        .stApp [data-baseweb="input"]:focus-within,
+        .stApp [data-baseweb="textarea"]:focus-within,
+        .stApp [data-baseweb="select"]:focus-within > div {
+            border-color: var(--cyan) !important;
+            box-shadow: var(--shadow), var(--focus-glow) !important;
+        }
+        /* dropdown menus */
+        [data-baseweb="popover"] > div {
+            background: #FFFFFF !important; border: 1px solid var(--border) !important;
+            border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; overflow: hidden;
+        }
+        [data-baseweb="popover"] [data-baseweb="menu"], [data-baseweb="popover"] ul { background: #FFFFFF !important; }
+        [data-baseweb="popover"] li { color: var(--ink) !important; }
+        [data-baseweb="popover"] li:hover, [data-baseweb="popover"] li[aria-selected="true"] { background: var(--panel) !important; }
+
+        /* ---------- BUTTONS ---------- */
+        .stApp .stButton > button, .stApp .stDownloadButton > button,
+        .stApp .stFormSubmitButton > button, .stApp .stLinkButton > a {
+            min-height: 42px; background: #FFFFFF !important; color: var(--ink) !important;
+            border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+            box-shadow: var(--shadow) !important; font-weight: 700 !important;
+            transition: border-color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease !important;
+        }
+        .stApp .stButton > button p, .stApp .stDownloadButton > button p,
+        .stApp .stFormSubmitButton > button p, .stApp .stLinkButton > a p { color: inherit !important; }
+        .stApp .stButton > button:hover, .stApp .stDownloadButton > button:hover,
+        .stApp .stFormSubmitButton > button:hover, .stApp .stLinkButton > a:hover {
+            border-color: var(--cyan) !important; background: #F5FDFF !important; color: var(--ink) !important; transform: translateY(-1px);
+        }
+        .stApp .stButton > button:focus-visible, .stApp .stFormSubmitButton > button:focus-visible,
+        .stApp .stDownloadButton > button:focus-visible {
+            outline: none !important; border-color: var(--cyan) !important; box-shadow: var(--shadow), var(--focus-glow) !important;
+        }
+        .stApp .stButton > button:disabled { opacity: .5; box-shadow: none !important; transform: none; }
+        .stApp .stButton > button[kind="primary"], .stApp .stButton > button[data-testid="stBaseButton-primary"],
+        .stApp .stFormSubmitButton > button[kind="primaryFormSubmit"], .stApp .stFormSubmitButton > button[data-testid="stBaseButton-primaryFormSubmit"] {
+            background: var(--ink) !important; border-color: var(--ink) !important; color: #FFFFFF !important;
+        }
+        .stApp .stButton > button[kind="primary"]:hover, .stApp .stButton > button[data-testid="stBaseButton-primary"]:hover,
+        .stApp .stFormSubmitButton > button[kind="primaryFormSubmit"]:hover, .stApp .stFormSubmitButton > button[data-testid="stBaseButton-primaryFormSubmit"]:hover {
+            background: #1E293B !important; border-color: var(--cyan) !important; color: #FFFFFF !important;
+        }
+
+        /* ---------- CONTAINERS: forms, metrics, expanders, tables ---------- */
+        [data-testid="stForm"] {
+            background: #FFFFFF !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+            box-shadow: var(--shadow) !important; padding: 1.25rem;
+        }
+        [data-testid="stMetric"] {
+            background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 22px; min-height: 130px; box-shadow: var(--shadow);
+            transition: transform .25s ease, border-color .25s ease;
+        }
+        [data-testid="stMetric"]:hover { transform: translateY(-2px); border-color: rgba(0,212,255,0.6); }
+        [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {
+            color: var(--muted) !important; font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase;
+        }
+        [data-testid="stMetricValue"], [data-testid="stMetricValue"] * {
+            color: var(--ink) !important; font-size: 27px !important; font-weight: 800 !important; font-family: "JetBrains Mono", monospace !important;
+        }
+        [data-testid="stExpander"] { border: none !important; background: transparent !important; box-shadow: none !important; }
+        [data-testid="stExpander"] details {
+            background: #FFFFFF; border: 1px solid var(--border) !important; border-radius: var(--radius) !important; box-shadow: var(--shadow);
+        }
+        [data-testid="stExpander"] summary, [data-testid="stExpander"] summary * { color: var(--ink) !important; font-weight: 600; }
+        [data-testid="stSidebar"] [data-testid="stExpander"] details { background: #FFFFFF; }
+        [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+            border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+        }
+        [data-testid="stAlert"] { border-radius: var(--radius); box-shadow: none; }
+        [data-baseweb="tab"] { color: var(--muted) !important; font-weight: 600; }
+        [data-baseweb="tab"][aria-selected="true"] { color: var(--ink) !important; }
+        [data-baseweb="tab-highlight"] { background: var(--cyan) !important; }
+        [data-baseweb="tab-border"] { background: var(--border) !important; }
+        .stProgress > div > div > div > div { background-color: var(--cyan) !important; }
+
+        /* ---------- workspace components ---------- */
+        .hl { background: linear-gradient(transparent 62%, rgba(0,212,255,0.38) 62%); }
+        .mood-hero {
+            display: flex; align-items: center; gap: 26px; padding: 28px 32px; border-radius: var(--radius);
+            border: 1px solid var(--mood-border, var(--border));
+            background: linear-gradient(135deg, var(--mood-bg-a, #F8FAFC), var(--mood-bg-b, #FFFFFF));
+            box-shadow: var(--shadow); transition: transform .3s ease;
+        }
+        .mood-hero:hover { transform: translateY(-2px); }
+        .mood-emoji { font-size: 84px; line-height: 1; animation: floaty 3.2s ease-in-out infinite; }
+        @keyframes floaty { 0%,100% { transform: translateY(0px);} 50% { transform: translateY(-8px);} }
+        .mood-text-title { font-size: 22px; font-weight: 800; color: var(--mood-color, var(--ink)); margin-bottom: 4px; }
+        .mood-text-sub { color: var(--ink-2); font-size: 14px; }
+        .mood-badge {
+            display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700;
+            text-transform: uppercase; background: var(--mood-badge-bg, #F1F5F9); color: var(--mood-color, var(--ink));
+            border: 1px solid var(--mood-border, var(--border));
+        }
+        .ticker-strip { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+        .ticker-chip {
+            padding: 8px 16px; border-radius: var(--radius); background: #FFFFFF; border: 1px solid var(--border);
+            font-family: "JetBrains Mono", monospace; font-size: 13px; font-weight: 600; color: var(--ink-2);
+            box-shadow: var(--shadow); transition: border-color .2s ease, transform .2s ease;
+        }
+        .ticker-chip:hover { border-color: var(--cyan); transform: translateY(-1px); }
+        .ticker-up { color: var(--green); } .ticker-down { color: var(--red); }
+        .glass-card {
+            background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;
+            min-height: 118px; box-shadow: var(--shadow); transition: transform .25s ease, border-color .25s ease;
+        }
+        .glass-card:hover { transform: translateY(-2px); border-color: rgba(0,212,255,0.6); }
+        .glass-label { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .glass-value { font-size: 22px; font-weight: 800; margin: 6px 0 4px 0; font-family: "JetBrains Mono", monospace; color: var(--ink); }
+        .glass-sub { color: var(--muted); font-size: 13px; }
+        .plan-badge { display:inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+        .plan-free { background: #F1F5F9; color: var(--ink-2); border: 1px solid var(--border); }
+        .plan-pro { background: rgba(217,119,6,0.09); color: #B45309; border: 1px solid rgba(217,119,6,0.28); }
+        .category-badge {
+            display:inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+            background: var(--cyan-wash); color: var(--cyan-ink); border: 1px solid rgba(0,212,255,0.4);
+        }
+        .section { font-size: 19px; font-weight: 800; color: var(--ink); margin: 26px 0 4px 0; letter-spacing: -0.3px; }
+        .helper { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+        .insight {
+            background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
+            font-size: 14px; color: var(--ink-2); box-shadow: var(--shadow); transition: transform .2s ease, border-color .2s ease;
+        }
+        .insight:hover { transform: translateY(-1px); border-color: rgba(0,212,255,0.6); }
+        .insight span { color: var(--muted); } .insight b { color: var(--ink); }
+        .action-item-red { border-left: 3px solid #F43F5E; }
+        .action-item-yellow { border-left: 3px solid #F59E0B; }
+        .action-item-green { border-left: 3px solid #10B981; }
+        .health-score-ring { text-align:center; min-height:170px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+        .why-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+        .why-row:last-child { border-bottom: none; }
+
+        @media (max-width: 900px) {
+            .block-container { padding-left: 1rem; padding-right: 1rem; }
+            .mood-hero { flex-direction: column; text-align: center; }
+            .mood-emoji { font-size: 64px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+inject_global_css()
 
 
 # ============================================================
@@ -1491,26 +1596,453 @@ for key, default in {
     "workspace_id": None,
     "auth_mode": "login",
     "pulse_granularity": "Month",
+    "tour_frame": 0,  # 0-based index of the landing-deck frame currently shown
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
 
 # ============================================================
-# AUTH SCREEN
+# LANDING DECK — 5-frame presentation gateway
 # ============================================================
 
-def render_auth_screen():
-    st.title("◈ FinSight")
-    st.caption("Sign in to your financial workspace, or create a free account.")
+def _html(markup):
+    """Collapse indented markup to one line so Markdown never treats it as a code block."""
+    return " ".join(line.strip() for line in markup.strip().splitlines())
 
+
+# ============================================================
+# FINBOT — white & blue helmet robot with a tablet
+# ============================================================
+# The robot body is an SVG delivered as a data-URI <img> (so Streamlit's HTML
+# handling can't mangle gradients/filters). The tablet is a real HTML/CSS
+# container layered behind the robot's hand, and the dialogue is typed into it.
+
+FB_BADGES = {
+    # tiny floating badge hovering beside the helmet — one per tour frame
+    "hello": '<path d="M0 -7 L2 -2 L7 0 L2 2 L0 7 L-2 2 L-7 0 L-2 -2 Z" fill="#00D4FF"/>',
+    "pulse": '<path d="M-8 1 L-4 1 L-2 -6 L2 7 L4 1 L8 1" fill="none" stroke="#00B8E6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    "alert": '<path d="M0 -7 V1.5" stroke="#F43F5E" stroke-width="3" stroke-linecap="round"/><circle cx="0" cy="6" r="1.9" fill="#F43F5E"/>',
+    "coin": '<path d="M-4.5 -5.5 H4.5 M-4.5 -2 H4.5 M-3 -5.5 H0.6 Q4 -5.5 4 -2.6 Q4 0.4 0.6 0.4 H-3 M-3 0.4 L3.4 6.6" fill="none" stroke="#B45309" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>',
+    "shield": '<path d="M0 -8 L7 -5 V1 C7 5 3.5 7.5 0 9 C-3.5 7.5 -7 5 -7 1 V-5 Z" fill="#E0F7FF" stroke="#2F7BF5" stroke-width="1.8" stroke-linejoin="round"/><path d="M-3.2 0.8 L-0.8 3.2 L3.6 -2.2" fill="none" stroke="#0A8FB0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+}
+
+
+def _capsule(x1, y1, x2, y2, w):
+    """A floating limb segment: soft blue edge, white body, tiny specular highlight."""
+    return (
+        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#9CC7FF" stroke-width="{w + 3.4}" stroke-linecap="round"/>'
+        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#FFFFFF" stroke-width="{w}" stroke-linecap="round"/>'
+        f'<line x1="{x1 - 1.2}" y1="{y1 - 1.2}" x2="{x2 - 1.2}" y2="{y2 - 1.2}" stroke="#E2EBF7" stroke-width="{max(w - 6, 2)}" stroke-linecap="round" opacity=".8"/>'
+    )
+
+
+def _joint(cx, cy, r):
+    """A blue mechanical joint ring."""
+    return (
+        f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.6"/>'
+        f'<circle cx="{cx}" cy="{cy}" r="{max(r - 4, 1.6)}" fill="#FFFFFF" opacity=".92"/>'
+    )
+
+
+def finbot_svg_markup(badge="hello"):
+    badge_icon = FB_BADGES.get(badge, FB_BADGES["hello"])
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 240" width="220" height="240">
+<defs>
+  <radialGradient id="fbW" cx=".34" cy=".26" r=".9"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#F3F7FC"/><stop offset="1" stop-color="#D3DFEE"/></radialGradient>
+  <linearGradient id="fbB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6FD3FF"/><stop offset="1" stop-color="#2563EB"/></linearGradient>
+  <linearGradient id="fbV" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1F4287"/><stop offset=".55" stop-color="#0E2150"/><stop offset="1" stop-color="#07122B"/></linearGradient>
+  <linearGradient id="fbS" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <filter id="fbG" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="fbBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+</defs>
+<style>
+  .wave{{transform-origin:130px 150px;animation:wave 2.1s ease-in-out infinite}}
+  .blink{{transform-box:fill-box;transform-origin:center;animation:blink 5.2s infinite}}
+  .jet{{transform-box:fill-box;transform-origin:center;animation:jet 1.6s ease-in-out infinite}}
+  .beacon{{animation:beacon 1.8s ease-in-out infinite}}
+  .badge{{animation:bob 3s ease-in-out infinite}}
+  .hand{{animation:grip 2.8s ease-in-out infinite}}
+  @keyframes wave{{0%,100%{{transform:rotate(-2deg)}}50%{{transform:rotate(12deg)}}}}
+  @keyframes blink{{0%,92%,100%{{transform:scaleY(1)}}95.5%{{transform:scaleY(.12)}}}}
+  @keyframes jet{{0%,100%{{opacity:.55;transform:scale(1)}}50%{{opacity:.95;transform:scale(1.18)}}}}
+  @keyframes beacon{{0%,100%{{opacity:.7}}50%{{opacity:1}}}}
+  @keyframes bob{{0%,100%{{transform:translate(34px,30px)}}50%{{transform:translate(34px,26px)}}}}
+  @keyframes grip{{0%,100%{{transform:translateY(0)}}50%{{transform:translateY(-1.5px)}}}}
+</style>
+
+<!-- ground shadow -->
+<ellipse cx="118" cy="228" rx="34" ry="5" fill="#0F172A" opacity=".10" filter="url(#fbBlur)"/>
+
+<g transform="translate(10,12)">
+  <!-- thruster glow + hull cone -->
+  <ellipse class="jet" cx="90" cy="198" rx="17" ry="6.5" fill="#00D4FF" filter="url(#fbBlur)"/>
+  <path d="M70 172 Q90 204 110 172 Z" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.6"/>
+  <path d="M78 176 Q90 192 102 176" fill="none" stroke="#FFFFFF" stroke-width="2" opacity=".55" stroke-linecap="round"/>
+
+  <!-- torso -->
+  <rect x="58" y="112" width="64" height="68" rx="30" fill="url(#fbW)" stroke="#D5E1F0" stroke-width="1.6"/>
+  <path d="M68 122 Q74 117 84 117" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" opacity=".9"/>
+  <rect x="75" y="131" width="30" height="24" rx="11" fill="url(#fbV)" stroke="#2F7BF5" stroke-width="1.4"/>
+  <circle cx="90" cy="143" r="7.4" fill="#00D4FF" filter="url(#fbG)"/>
+  <circle cx="90" cy="143" r="3.2" fill="#FFFFFF"/>
+  <rect x="64" y="160" width="52" height="8" rx="4" fill="url(#fbB)"/>
+  <rect x="66" y="161.4" width="22" height="2.2" rx="1.1" fill="#FFFFFF" opacity=".6"/>
+
+  <!-- neck ring -->
+  <rect x="74" y="105" width="32" height="12" rx="6" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.6"/>
+
+  <!-- helmet head -->
+  <ellipse cx="90" cy="62" rx="68" ry="55" fill="url(#fbW)" stroke="#D5E1F0" stroke-width="1.8"/>
+  <path d="M38 40 Q52 14 82 12" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" opacity=".95"/>
+  <path d="M30 56 Q31 46 36 38" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+  <!-- ear pods -->
+  <rect x="12" y="44" width="17" height="34" rx="8.5" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.8"/>
+  <rect x="151" y="44" width="17" height="34" rx="8.5" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.8"/>
+  <rect x="16.5" y="51" width="3.6" height="20" rx="1.8" fill="#FFFFFF" opacity=".7"/>
+  <rect x="159.5" y="51" width="3.6" height="20" rx="1.8" fill="#FFFFFF" opacity=".7"/>
+  <!-- beacon -->
+  <rect x="86" y="3" width="8" height="8" rx="3" fill="url(#fbB)"/>
+  <circle class="beacon" cx="90" cy="2.5" r="4.6" fill="#00D4FF" filter="url(#fbG)"/>
+
+  <!-- visor -->
+  <rect x="34" y="30" width="112" height="66" rx="33" fill="url(#fbV)" stroke="#2F7BF5" stroke-width="2"/>
+  <path d="M46 44 Q58 34 82 33" fill="none" stroke="url(#fbS)" stroke-width="5" stroke-linecap="round"/>
+  <!-- happy glowing eyes -->
+  <g class="blink">
+    <path d="M56 70 C56 55 62 48 69 48 C76 48 82 55 82 70 Q69 60 56 70 Z" fill="#26D3FF" filter="url(#fbG)"/>
+    <path d="M98 70 C98 55 104 48 111 48 C118 48 124 55 124 70 Q111 60 98 70 Z" fill="#26D3FF" filter="url(#fbG)"/>
+    <circle cx="64.5" cy="55.5" r="2.6" fill="#FFFFFF" opacity=".95"/>
+    <circle cx="106.5" cy="55.5" r="2.6" fill="#FFFFFF" opacity=".95"/>
+  </g>
+  <path d="M81 79 Q90 87.5 99 79" fill="none" stroke="#26D3FF" stroke-width="3.6" stroke-linecap="round" filter="url(#fbG)"/>
+  <ellipse cx="47" cy="78" rx="6" ry="3.4" fill="#38BDF8" opacity=".5"/>
+  <ellipse cx="133" cy="78" rx="6" ry="3.4" fill="#38BDF8" opacity=".5"/>
+
+  <!-- floating badge -->
+  <g class="badge"><circle r="13.5" fill="#FFFFFF" stroke="#2F7BF5" stroke-width="2.4"/>{badge_icon}</g>
+
+  <!-- RIGHT arm: floating segments, waving -->
+  <g class="wave">
+    {_joint(130, 150, 7)}
+    {_capsule(141, 146, 153, 136, 9)}
+    {_joint(159, 131, 5)}
+    {_capsule(164, 125, 172, 109, 8)}
+    <ellipse cx="174.5" cy="102" rx="7" ry="3.4" transform="rotate(-30 174.5 102)" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.4"/>
+    <circle cx="178" cy="91" r="10" fill="url(#fbW)" stroke="#BCD3EE" stroke-width="1.6"/>
+    <circle cx="168.5" cy="89.5" r="4.4" fill="url(#fbW)" stroke="#BCD3EE" stroke-width="1.4"/>
+    <circle cx="178" cy="92" r="3" fill="#00D4FF" opacity=".85"/>
+  </g>
+
+  <!-- LEFT arm: floating segments, holding the tablet -->
+  <g class="hand">
+    {_joint(50, 150, 7)}
+    {_capsule(41, 156, 28, 160, 9)}
+    {_joint(21, 161, 5)}
+    {_capsule(15, 158, 9, 150, 8)}
+    <ellipse cx="6.5" cy="145" rx="7" ry="3.4" transform="rotate(-62 6.5 145)" fill="url(#fbB)" stroke="#FFFFFF" stroke-width="1.4"/>
+    <circle cx="4" cy="134" r="10" fill="url(#fbW)" stroke="#BCD3EE" stroke-width="1.6"/>
+    <circle cx="12.5" cy="127.5" r="4.2" fill="url(#fbW)" stroke="#BCD3EE" stroke-width="1.4"/>
+    <circle cx="4" cy="135" r="3" fill="#00D4FF" opacity=".85"/>
+  </g>
+</g>
+</svg>"""
+
+
+def finbot_data_uri(badge="hello"):
+    raw = finbot_svg_markup(badge).encode("utf-8")
+    return "data:image/svg+xml;base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _typed_words(text, anim_id):
+    """Turns 'Hi **FinBot**!' into per-word spans that 'print' one after another.
+    Punctuation stuck to a bold phrase stays in the same span so it never wraps onto its own line."""
+    items = []  # dicts: word, bold, gap (space after), tail (glued plain text)
+    for part in re.split(r"(\*\*.+?\*\*)", text):
+        if not part:
+            continue
+        bold = part.startswith("**") and part.endswith("**")
+        body = part[2:-2] if bold else part
+        for n, token in enumerate(re.findall(r"\S+\s*", body)):
+            word = token.strip()
+            gap = " " if token != word else ""
+            glued = (not bold) and n == 0 and items and not body[:1].isspace() and items[-1]["gap"] == ""
+            if glued:
+                items[-1]["tail"] = word
+                items[-1]["gap"] = gap
+            else:
+                items.append({"word": word, "bold": bold, "gap": gap, "tail": ""})
+    spans = []
+    for i, it in enumerate(items):
+        inner = html_lib.escape(it["word"])
+        if it["bold"]:
+            inner = f'<b class="fbb">{inner}</b>'
+        inner += html_lib.escape(it["tail"])
+        delay = 0.35 + i * 0.065
+        spans.append(f'<span class="fb-w" style="animation-name:fbtype{anim_id};animation-delay:{delay:.2f}s">{inner}</span>{it["gap"]}')
+    return "".join(spans)
+
+
+def finbot_stage_html(message, badge="hello", mode="hang", anim_id=0):
+    """FinBot + tablet. mode='hang' anchors to a slide corner; mode='dock' is the fixed workspace overlay."""
+    return _html(f"""
+    <div class="fb-stage fb-{mode}" aria-label="FinBot, your finance helper">
+        <div class="fb-float">
+            <div class="fb-tablet" role="status" aria-live="polite">
+                <div class="fb-screen">
+                    <div class="fb-bar"><i class="fb-cam"></i><span class="fb-name">FinBot</span><span class="fb-live">&#9679; live</span></div>
+                    <div class="fb-text">{_typed_words(message, anim_id)}<i class="fb-cursor"></i></div>
+                </div>
+                <i class="fb-home"></i>
+            </div>
+            <img class="fb-bot" alt="FinBot waving hello" src="{finbot_data_uri(badge)}"/>
+        </div>
+    </div>
+    """)
+
+
+def finbot_css():
+    """Shared FinBot styling (tablet, typing animation, hang + dock placement)."""
+    typing = "".join(
+        f"@keyframes fbtype{i}{{from{{opacity:0;transform:translateY(3px)}}to{{opacity:1;transform:none}}}}"
+        for i in range(8)
+    )
+    return (
+        "<style>"
+        + typing
+        + """
+        .fb-stage { position: relative; width: 430px; height: 240px; pointer-events: none; }
+        .fb-float { position: absolute; inset: 0; animation: fb-bob 3.6s ease-in-out infinite; }
+        .fb-bot { position: absolute; right: 0; top: 0; width: 220px; height: 240px; z-index: 2; display: block; }
+
+        .fb-tablet {
+            position: absolute; left: 0; bottom: 20px; width: 236px; z-index: 1; padding: 8px 8px 14px;
+            background: linear-gradient(150deg, #1E293B, #0F172A); border-radius: 22px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.12), 0 4px 6px -2px rgba(0,0,0,0.06);
+            transform: rotate(-2.5deg); transform-origin: 90% 55%;
+        }
+        .fb-screen { background: linear-gradient(180deg, #FFFFFF, #EEF9FF); border-radius: 15px; padding: 9px 26px 12px 12px; min-height: 108px; }
+        .fb-bar { display: flex; align-items: center; gap: 7px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; color: #64748B; margin-bottom: 8px; }
+        .fb-cam { width: 5px; height: 5px; border-radius: 50%; background: #CBD5E1; flex: none; }
+        .fb-name { color: #0F172A; text-transform: uppercase; letter-spacing: 1px; }
+        .fb-live { margin-left: auto; color: #00B8E6; }
+        .fb-text { font-size: 12.5px; line-height: 1.5; color: #0F172A; font-weight: 500; }
+        .fb-w { display: inline-block; opacity: 0; animation-duration: .2s; animation-fill-mode: both; animation-timing-function: ease-out; }
+        .fb-w .fbb { font-weight: 800; color: #0A8FB0; }
+        .fb-cursor { display: inline-block; width: 6px; height: 13px; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: #00D4FF; animation: fb-caret 1s steps(1) infinite; }
+        .fb-home { position: absolute; left: 50%; bottom: 4px; width: 46px; height: 3px; margin-left: -23px; border-radius: 2px; background: #475569; }
+
+        /* hang: pinned to the top-right corner of a slide (parent must be position:relative) */
+        .fb-hang { position: absolute; top: -184px; right: 22px; z-index: 6; }
+        /* dock: fixed overlay on the right-hand corner of the workspace */
+        .fb-dock { position: fixed; right: 14px; bottom: 4px; z-index: 90; transform: scale(.8); transform-origin: right bottom; }
+        .fb-dock .fb-text { font-size: 13.5px; }
+
+        @keyframes fb-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+        @keyframes fb-caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+
+        @media (max-width: 1100px) { .fb-dock { display: none; } }
+        @media (max-width: 820px) {
+            .fb-hang { position: relative; top: auto; right: auto; margin: 0 auto 14px; transform: scale(.88); transform-origin: center top; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .fb-float, .fb-cursor { animation: none; }
+            .fb-w { opacity: 1; animation: none; }
+        }
+        </style>
+        """
+    )
+
+
+TOUR_FRAMES = [
+    {
+        "tag": "Welcome", "badge": "hello",
+        "title": "Know how your business is <em>really</em> doing.",
+        "sub": "FinSight turns everyday sales and expenses into plain-English signals. "
+               "No spreadsheets to decode and no accounting degree needed.",
+        "say": "Hi, I'm **FinBot**! I read your sales and expenses so you don't have to. Ready for a 30-second tour?",
+        "visual": """
+            <div class="pv-label">How it works</div>
+            <div class="pv-step"><span class="pv-num">1</span><div><b>Add a sale or a bill</b><small>One line, about five seconds.</small></div></div>
+            <div class="pv-step"><span class="pv-num">2</span><div><b>I sort and read it</b><small>Categories and totals update instantly.</small></div></div>
+            <div class="pv-step"><span class="pv-num">3</span><div><b>You get clear answers</b><small>Healthy? Overspending? Tax coming up?</small></div></div>
+        """,
+    },
+    {
+        "tag": "Real-Time Mood Radar", "badge": "pulse",
+        "title": "A mood ring for your money.",
+        "sub": "The moment you log a transaction, FinSight compares revenue with expenses "
+               "and tells you how your business feels: strong, steady, thin, or losing money.",
+        "say": "This is my favorite part! Every time you add a number I check your **profit margin** and show a mood, "
+               "from **Excellent momentum** to **Loss detected**. It updates live.",
+        "visual": """
+            <div class="pv-label">Sample preview</div>
+            <div class="pv-mood">
+                <div class="pv-emoji">&#128640;</div>
+                <div><b>Excellent momentum</b><small>Your business is generating a strong return.</small></div>
+            </div>
+            <div class="pv-chips">
+                <span>REVENUE <i class="up">&#8377;124,000</i></span>
+                <span>EXPENSES <i class="down">&#8377;89,500</i></span>
+                <span>MARGIN <i class="up">27.8%</i></span>
+            </div>
+        """,
+    },
+    {
+        "tag": "Autonomous Alerts &amp; Anomaly Spotting", "badge": "alert",
+        "title": "Problems spotted before they grow.",
+        "sub": "FinSight quietly watches your ledger and budgets. When something looks unusual, "
+               "it lands in your Action Center with a plain explanation of what changed.",
+        "say": "I never take a day off! A bill much bigger than usual? A budget blown? I'll tell you **what happened and why**.",
+        "visual": """
+            <div class="pv-label">Sample alerts</div>
+            <div class="pv-alert red"><b>Spike</b><small>Rent payment is far above its usual range.</small></div>
+            <div class="pv-alert yellow"><b>Budget</b><small>Marketing has used 112% of this month's limit.</small></div>
+            <div class="pv-alert green"><b>Milestone</b><small>Profit margin improved for the second month.</small></div>
+        """,
+    },
+    {
+        "tag": "Premium Tax &amp; Leak Profiling", "badge": "coin",
+        "title": "Set tax money aside. Plug the leaks.",
+        "sub": "Premium forecasts your upcoming GST and yearly income tax, and scans your ledger "
+               "for accidental double entries that quietly drain cash.",
+        "say": "With Premium I forecast **next month's GST** so you can save for it, and I hunt for **duplicate payments** in your ledger.",
+        "visual": """
+            <div class="pv-label">Sample premium insights <span class="pv-pill">PREMIUM</span></div>
+            <div class="pv-kv"><small>Next 30-day GST forecast</small><b>&#8377;18,400</b></div>
+            <div class="pv-kv"><small>Estimated annual income tax</small><b>&#8377;96,000</b></div>
+            <div class="pv-alert red"><b>Leak scan</b><small>2 possible double entries found.</small></div>
+        """,
+    },
+    {
+        "tag": "Secure Workspace Creation", "badge": "shield",
+        "title": "Create your secure workspace.",
+        "sub": "Log in or sign up in seconds. Each business gets its own private workspace, "
+               "and you decide who joins it.",
+        "say": "You made it! Create a free account and I'll start reading your numbers. Passwords are **salted and hashed**.",
+        "visual": "",
+    },
+]
+TOUR_LAST = len(TOUR_FRAMES) - 1
+
+
+def inject_landing_css():
+    """Deck-only layout. Colors, borders, radius and shadow all come from the global tokens."""
+    st.markdown(finbot_css(), unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+        [data-testid="stHeader"] { display: none; }
+        [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none; }
+        .block-container { max-width: 1060px; padding-top: 1.6rem; }
+
+        .deck-brand { font-size: 22px; font-weight: 900; letter-spacing: -0.6px; color: var(--ink); padding-top: 6px; }
+        .deck-brand span { color: var(--cyan); }
+
+        /* Skip Tour: prominent outlined pill */
+        .st-key-skip_tour { display: flex; justify-content: flex-end; }
+        .st-key-skip_tour button { min-height: 0 !important; padding: 8px 22px !important; border-radius: 999px !important; border: 1.5px solid var(--ink) !important; }
+        .st-key-skip_tour button p { font-size: 14px; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--cyan); }
+        .st-key-skip_tour button:hover { background: var(--ink) !important; color: #FFFFFF !important; border-color: var(--ink) !important; }
+
+        /* the slide: FinBot hangs off its top-right corner, so overflow must stay visible */
+        .st-key-deck_frame {
+            position: relative; overflow: visible !important; background: #FFFFFF; border: 1px solid var(--border);
+            border-radius: 20px; padding: 46px 52px 26px 52px; min-height: 470px; margin: 150px 0 40px 0; box-shadow: var(--shadow);
+            gap: .4rem;
+        }
+        .st-key-deck_frame [data-testid="stElementContainer"], .st-key-deck_frame [data-testid="stMarkdown"],
+        .st-key-deck_frame [data-testid="stMarkdownContainer"] { overflow: visible !important; }
+        .st-key-deck_frame > [data-testid="stElementContainer"]:last-child { margin-top: auto; }  /* pins the dots to the slide bottom */
+
+        .deck-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 44px; align-items: start; }
+        .deck-copy { margin-top: 30px; }
+        .deck-grid.solo { grid-template-columns: 1fr; padding-top: 76px; text-align: center; }
+        .deck-grid.solo .deck-copy { margin-top: 0; }
+        .deck-eyebrow { font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+        .deck-eyebrow b { color: var(--ink); }
+        .deck-title { font-size: 42px; line-height: 1.06; font-weight: 900; letter-spacing: -1.4px; color: var(--ink); margin: 0 0 16px 0; }
+        .deck-title em { font-style: normal; background: linear-gradient(transparent 62%, rgba(0,212,255,0.38) 62%); }
+        .deck-sub { font-size: 16px; line-height: 1.6; color: var(--muted); max-width: 470px; }
+        .deck-grid.solo .deck-sub { margin: 0 auto; }
+
+        .deck-visual { margin-top: 100px; background: var(--canvas-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+        .pv-label { font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--faint); margin-bottom: 12px; }
+        .pv-pill { margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: #FFFFFF; letter-spacing: .8px; }
+        .pv-step, .pv-kv, .pv-alert, .pv-mood { background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+        .pv-step { display: flex; gap: 14px; align-items: center; padding: 12px 14px; margin-bottom: 10px; }
+        .pv-step:last-child, .pv-alert:last-child, .pv-kv:last-child { margin-bottom: 0; }
+        .pv-num { width: 28px; height: 28px; flex: none; border-radius: 999px; background: var(--ink); color: #FFFFFF; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+        .deck-visual b { display: block; color: var(--ink); font-size: 14px; font-weight: 700; }
+        .deck-visual small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+        .pv-mood { display: flex; gap: 16px; align-items: center; padding: 16px; border-color: rgba(16,185,129,0.35); }
+        .pv-emoji { font-size: 44px; line-height: 1; }
+        .pv-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .pv-chips span { padding: 6px 12px; background: #FFFFFF; border: 1px solid var(--border); border-radius: 10px; font-family: "JetBrains Mono", monospace; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+        .pv-chips i { font-style: normal; } .pv-chips .up { color: var(--green); } .pv-chips .down { color: var(--red); }
+        .pv-alert { padding: 11px 14px; margin-bottom: 10px; border-left-width: 3px; }
+        .pv-alert.red { border-left-color: #F43F5E; } .pv-alert.yellow { border-left-color: #F59E0B; } .pv-alert.green { border-left-color: #10B981; }
+        .pv-kv { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; margin-bottom: 10px; }
+        .pv-kv small { margin: 0; } .pv-kv b { font-family: "JetBrains Mono", monospace; font-size: 15px; }
+
+        /* pagination dots: the active frame glows cyan */
+        .deck-dots { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 26px; }
+        .deck-dot { width: 8px; height: 8px; border-radius: 999px; background: #CBD5E1; transition: all .3s ease; }
+        .deck-dot.active { width: 26px; background: var(--cyan); box-shadow: 0 0 12px rgba(0,212,255,0.7); }
+        .st-key-tour_next button { min-width: 170px; }
+
+        @media (max-width: 820px) {
+            .st-key-deck_frame { padding: 28px 20px 22px 20px; margin: 16px 0 30px 0; }
+            .deck-grid { grid-template-columns: 1fr; gap: 24px; }
+            .deck-grid.solo { padding-top: 0; }
+            .deck-visual { margin-top: 0; }
+            .deck-title { font-size: 32px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _tour_go(step=0, to=None):
+    """Button callback: runs before the next rerun, so no st.rerun() loop is needed."""
+    current = st.session_state.tour_frame
+    target = to if to is not None else current + step
+    st.session_state.tour_frame = max(0, min(TOUR_LAST, target))
+
+
+def _slide_html(idx):
+    frame = TOUR_FRAMES[idx]
+    stage = finbot_stage_html(frame["say"], frame["badge"], "hang", idx)
+    eyebrow = f'<div class="deck-eyebrow"><b>Frame {idx + 1:02d} / {len(TOUR_FRAMES):02d}</b> &nbsp;·&nbsp; {frame["tag"]}</div>'
+    copy = f'<div class="deck-copy">{eyebrow}<div class="deck-title">{frame["title"]}</div><div class="deck-sub">{frame["sub"]}</div></div>'
+    if idx == TOUR_LAST:
+        body = f'<div class="deck-grid solo">{copy}</div>'
+    else:
+        body = f'<div class="deck-grid">{copy}<div class="deck-visual">{frame["visual"]}</div></div>'
+    return _html(stage + body)
+
+
+def _dots_html(idx):
+    dots = "".join(f'<span class="deck-dot{" active" if j == idx else ""}"></span>' for j in range(len(TOUR_FRAMES)))
+    return f'<div class="deck-dots" role="presentation" aria-label="Frame {idx + 1} of {len(TOUR_FRAMES)}">{dots}</div>'
+
+
+def render_finbot_dock(message, badge="hello"):
+    """Fixed bottom-right FinBot overlay for the workspace (pointer-events are off, so it never blocks clicks)."""
+    st.markdown(finbot_css(), unsafe_allow_html=True)
+    st.markdown(finbot_stage_html(message, badge, "dock", 5), unsafe_allow_html=True)
+
+
+def render_auth_forms():
+    """Log in / create account. Logic is unchanged from the original gateway."""
     tab_login, tab_signup = st.tabs(["Log in", "Create account"])
 
     with tab_login:
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Log in", use_container_width=True)
+            submitted = st.form_submit_button("Log in", use_container_width=True, type="primary")
 
         if submitted:
             user = authenticate(username, password)
@@ -1528,7 +2060,7 @@ def render_auth_screen():
             new_username = st.text_input("Choose a username")
             new_password = st.text_input("Choose a password", type="password")
             confirm_password = st.text_input("Confirm password", type="password")
-            submitted_signup = st.form_submit_button("Create account", use_container_width=True)
+            submitted_signup = st.form_submit_button("Create account", use_container_width=True, type="primary")
 
         if submitted_signup:
             if not new_username.strip() or not new_password:
@@ -1545,8 +2077,37 @@ def render_auth_screen():
                     st.error(message)
 
 
+def render_gateway():
+    """Single-pass gateway: header -> frame (+ forms on the last frame) -> nav row."""
+    inject_landing_css()
+    idx = max(0, min(TOUR_LAST, st.session_state.tour_frame))
+    st.session_state.tour_frame = idx
+
+    head_left, head_right = st.columns([5, 1.6], vertical_alignment="center")
+    with head_left:
+        st.markdown('<div class="deck-brand"><span>◈</span> FinSight</div>', unsafe_allow_html=True)
+    with head_right:
+        if idx < TOUR_LAST:
+            st.button("Skip Tour ➔", key="skip_tour", on_click=_tour_go, kwargs={"to": TOUR_LAST})
+
+    with st.container(key="deck_frame"):
+        st.markdown(_slide_html(idx), unsafe_allow_html=True)
+        if idx == TOUR_LAST:  # registration / login only appear on Frame 5
+            _, form_col, _ = st.columns([1, 2.2, 1])
+            with form_col:
+                render_auth_forms()
+        st.markdown(_dots_html(idx), unsafe_allow_html=True)
+
+    with st.container(key="deck_nav"):
+        prev_col, _, next_col = st.columns([1.3, 4, 1.7])
+        with prev_col:
+            st.button("← Previous", key="tour_prev", disabled=(idx == 0), on_click=_tour_go, kwargs={"step": -1})
+        with next_col:
+            if idx < TOUR_LAST:
+                st.button("Next Frame →", key="tour_next", type="primary", on_click=_tour_go, kwargs={"step": 1})
+
 if st.session_state.user is None:
-    render_auth_screen()
+    render_gateway()
     st.stop()
 
 current_user = get_user_by_id(st.session_state.user["id"])
@@ -1563,6 +2124,7 @@ workspaces = get_user_workspaces(current_user["id"])
 if not workspaces:
     st.title("◈ FinSight")
     st.subheader("Create your first workspace")
+    render_finbot_dock("Let's set up your first workspace! Add your **business name** and I'll start tracking.", "hello")
     st.caption("A workspace holds one business's transactions, budgets, and goals.")
 
     with st.form("create_workspace_form"):
@@ -1611,9 +2173,12 @@ with st.sidebar:
     st.markdown(f"<span class='plan-badge {plan_class}'>{plan} plan</span>", unsafe_allow_html=True)
     st.caption(f"Logged in as **{current_user['username']}**")
 
+    st.toggle("Show FinBot", value=True, key="show_finbot")
+
     if st.button("Log out", use_container_width=True):
         st.session_state.user = None
         st.session_state.workspace_id = None
+        st.session_state.tour_frame = TOUR_LAST  # skip the tour for returning users
         st.rerun()
 
     st.divider()
@@ -1813,8 +2378,8 @@ st.markdown(
     f"""
     <div style='display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:12px;'>
         <div>
-            <h1 style='font-size:42px;margin:0;line-height:1.08;'>Your business,<br><span style='color:#00D4FF;'>seen clearly.</span></h1>
-            <p style='color:#7C8BA6;margin-top:10px;font-size:14px;'>
+            <h1 style='font-size:42px;margin:0;line-height:1.08;'>Your business,<br><span class='hl'>seen clearly.</span></h1>
+            <p style='color:#64748B;margin-top:10px;font-size:14px;'>
                 {workspace['name']} · <span class='category-badge'>{business_category}</span> · {period} · a control room for the money behind the business.
             </p>
         </div>
@@ -1883,7 +2448,7 @@ st.markdown(
             <div class='mood-badge'>Net position · {money(profit)} · {margin:.1f}% margin</div>
         </div>
         <div style='text-align:right;min-width:180px;'>
-            <div style='color:#7C8BA6;font-size:11px;font-weight:700;text-transform:uppercase;'>Today's signal</div>
+            <div style='color:#64748B;font-size:11px;font-weight:700;text-transform:uppercase;'>Today's signal</div>
             <div style='font-size:30px;font-weight:900;color:{mood_style['color']};'>{profit_arrow} {abs(profit):,.0f}</div>
         </div>
     </div>
@@ -1969,7 +2534,7 @@ if health_score.get("insufficient_data"):
 else:
     hs_col1, hs_col2 = st.columns([1, 2.3], gap="large")
     with hs_col1:
-        score_color = "#00E676" if health_score["total"] >= 75 else ("#FFC94A" if health_score["total"] >= 50 else "#FF3B5C")
+        score_color = "#059669" if health_score["total"] >= 75 else ("#D97706" if health_score["total"] >= 50 else "#E11D48")
         st.markdown(
             f"""
             <div class='glass-card health-score-ring'>
@@ -2011,7 +2576,7 @@ else:
     for col, (label, field, is_pct) in zip(pulse_cols, pulse_fields):
         with col:
             display_val = f"{field['current']:.1f}%" if is_pct else money(field["current"])
-            arrow_color = "#00E676" if field["direction"] == "↑" else ("#FF3B5C" if field["direction"] == "↓" else "#7C8BA6")
+            arrow_color = "#059669" if field["direction"] == "↑" else ("#E11D48" if field["direction"] == "↓" else "#64748B")
             st.markdown(
                 f"""
                 <div class='glass-card'>
@@ -2075,30 +2640,20 @@ else:
     forecast = forecast_next_days(daily, days=7)
 
     fig = go.Figure()
-
-    for i in range(1, len(daily)):
-        segment_color = "#00E676" if daily.loc[i, "movement"] >= 0 else "#FF3B5C"
-        fig.add_trace(
-            go.Scatter(
-                x=daily.loc[i-1:i, "date"],
-                y=daily.loc[i-1:i, "close"],
-                mode="lines",
-                line=dict(color=segment_color, width=4),
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        )
-
     fig.add_trace(
         go.Scatter(
             x=daily["date"],
             y=daily["close"],
-            mode="markers",
-            marker=dict(size=6, color="#E9F1FF", line=dict(width=2, color="#08101f")),
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),  # Updated to Neo-Mint
+            marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color="#10B981")),
+            fill="tozeroy",
+            fillcolor="rgba(16, 185, 129, 0.04)",  # Soft clean mint glow tint
             name="Position",
             hovertemplate="<b>%{x|%d %b}</b><br>Position: " + currency_symbol + "%{y:,.0f}<extra></extra>",
         )
     )
+
 
     if forecast is not None:
         forecast_x = pd.concat([daily[["date", "close"]].tail(1), forecast], ignore_index=True)
@@ -2107,26 +2662,27 @@ else:
                 x=forecast_x["date"],
                 y=forecast_x["close"],
                 mode="lines",
-                line=dict(color="#B388FF", width=3, dash="dot"),
+                line=dict(color="#64748B", width=2.5, dash="dot"),
                 name="7-day trend",
                 hovertemplate="<b>%{x|%d %b}</b><br>Projected: " + currency_symbol + "%{y:,.0f}<extra></extra>",
             )
         )
 
-    fig.add_hline(y=0, line_width=1, line_dash="dot", line_color="rgba(148,163,184,.20)")
+    fig.add_hline(y=0, line_width=1, line_dash="dot", line_color="rgba(17,24,39,0.15)")
     fig.update_layout(
         height=500,
         margin=dict(l=5, r=5, t=10, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color="#94A3B8"),
+        font=dict(family="Inter", color="#64748B"),
         hovermode="x unified",
         showlegend=False,
+        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor="#E2E8F0", font=dict(family="Inter", color="#0F172A")),
     )
     fig.update_xaxes(showgrid=False, zeroline=False, fixedrange=True)
     fig.update_yaxes(
         showgrid=True,
-        gridcolor="rgba(148,163,184,.07)",
+        gridcolor="rgba(17,24,39,0.06)",
         zeroline=False,
         fixedrange=True,
         tickprefix=currency_symbol,
@@ -2254,7 +2810,7 @@ else:
                 f"""
                 <div class='glass-card' style='min-height:128px;'>
                     <div class='glass-label'>{h['icon']} {h['title']}</div>
-                    <div class='glass-sub' style='margin-top:8px;font-size:13.5px;color:#E7ECF6;'>{h['text']}</div>
+                    <div class='glass-sub' style='margin-top:8px;font-size:13.5px;color:#111827;'>{h['text']}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2397,7 +2953,7 @@ with highlight_columns[0]:
         share = largest_amount / expenses * 100
         st.markdown(
             f"""<div class="glass-card"><div class="glass-label">↘ Largest cost bucket</div>
-            <div class="glass-value" style="color:#FF3B5C;">{largest_category}</div>
+            <div class="glass-value" style="color:#E11D48;">{largest_category}</div>
             <div class="glass-sub">{share:.1f}% of expenses • {money(largest_amount)}</div></div>""",
             unsafe_allow_html=True,
         )
@@ -2414,7 +2970,7 @@ with highlight_columns[1]:
         biggest_income = income_data.loc[income_data["amount"].idxmax()]
         st.markdown(
             f"""<div class="glass-card"><div class="glass-label">↗ Largest revenue event</div>
-            <div class="glass-value" style="color:#00E676;">{money(biggest_income['amount'])}</div>
+            <div class="glass-value" style="color:#059669;">{money(biggest_income['amount'])}</div>
             <div class="glass-sub">{biggest_income['description']}</div></div>""",
             unsafe_allow_html=True,
         )
@@ -2427,13 +2983,13 @@ with highlight_columns[1]:
 
 with highlight_columns[2]:
     if income <= 0 and expenses <= 0:
-        p_color, p_label, p_sub = "#7C8BA6", "No data", "Add transactions to activate insights."
+        p_color, p_label, p_sub = "#64748B", "No data", "Add transactions to activate insights."
     elif profit < 0:
-        p_color, p_label, p_sub = "#FF3B5C", f"-{money(abs(profit))}", f"Expenses exceed revenue by {money(abs(profit))}."
+        p_color, p_label, p_sub = "#E11D48", f"-{money(abs(profit))}", f"Expenses exceed revenue by {money(abs(profit))}."
     elif margin < 10:
-        p_color, p_label, p_sub = "#FFC94A", f"{margin:.1f}%", "Positive, but the margin is thin."
+        p_color, p_label, p_sub = "#D97706", f"{margin:.1f}%", "Positive, but the margin is thin."
     else:
-        p_color, p_label, p_sub = "#00E676", f"{margin:.1f}%", "Healthy share of revenue retained."
+        p_color, p_label, p_sub = "#059669", f"{margin:.1f}%", "Healthy share of revenue retained."
     st.markdown(
         f"""<div class="glass-card"><div class="glass-label">◆ Profitability</div>
         <div class="glass-value" style="color:{p_color};">{p_label}</div><div class="glass-sub">{p_sub}</div></div>""",
@@ -2464,7 +3020,7 @@ else:
     st.markdown(
         f"""<div class="glass-card" style="margin-bottom:16px;">
             <div class="glass-label">Total outstanding</div>
-            <div class="glass-value" style="color:#FFC94A;">{money(total_owed)}</div>
+            <div class="glass-value" style="color:#D97706;">{money(total_owed)}</div>
             <div class="glass-sub">{len(unpaid_df)} unpaid invoice(s)</div>
         </div>""",
         unsafe_allow_html=True,
@@ -2586,14 +3142,15 @@ with left:
         expense_chart = go.Figure()
         expense_chart.add_trace(
             go.Bar(x=category_totals.values, y=category_totals.index, orientation="h",
-                   marker=dict(color=category_totals.values, colorscale=[[0, "#00D4FF"], [1, "#B388FF"]]),
+                   marker=dict(color=category_totals.values, colorscale=[[0, "rgba(16, 185, 129, 0.2)"], [1, "#10B981"]], line=dict(width=0)),
                    hovertemplate="<b>%{y}</b><br>Spent: " + currency_symbol + "%{x:,.0f}<extra></extra>")
         )
         expense_chart.update_layout(
             height=340, margin=dict(l=10, r=10, t=15, b=15), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter", color="#94A3B8"),
-            xaxis=dict(showgrid=True, gridcolor="rgba(148,163,184,0.07)", tickprefix=currency_symbol),
-            yaxis=dict(showgrid=False, tickfont=dict(size=10, color="#94A3B8")),
+            font=dict(family="Inter", color="#64748B"),
+            hoverlabel=dict(bgcolor="#FFFFFF", bordercolor="#E2E8F0", font=dict(family="Inter", color="#0F172A")),
+            xaxis=dict(showgrid=True, gridcolor="rgba(17,24,39,0.06)", tickprefix=currency_symbol),
+            yaxis=dict(showgrid=False, tickfont=dict(size=10, color="#64748B")),
         )
         st.plotly_chart(expense_chart, use_container_width=True, config={"displayModeBar": False})
 
@@ -2736,14 +3293,14 @@ if token_input == MASTER_TOKEN:
         if tax_data is None:
             st.info("Add at least 5 different transaction logs over past cycles to generate predictive runways.")
         else:
-            health_color = "#00E676" if tax_data["run_rate_health"] == "Stable" else "#FF3B5C"
+            health_color = "#059669" if tax_data["run_rate_health"] == "Stable" else "#E11D48"
             st.markdown(
                 f"""
                 <div class='glass-card'>
                     <div class='glass-label'>Next 30-Day GST Outflow Forecast</div>
                     <div class='glass-value'>{money(tax_data['monthly_gst_forecast'])}</div>
                     <div class='glass-label' style='margin-top:10px;'>Estimated Annual Income Tax Liability</div>
-                    <div class='glass-value' style='color:#B388FF;'>{money(tax_data['estimated_annual_income_tax'])}</div>
+                    <div class='glass-value' style='color:#0F172A;'>{money(tax_data['estimated_annual_income_tax'])}</div>
                     <div class='glass-sub' style='margin-top:8px;'>Operation Run-Rate Health: <b style='color:{health_color};'>{tax_data['run_rate_health']}</b></div>
                 </div>
                 """,
@@ -2767,7 +3324,7 @@ else:
             f"""
             <div class='glass-card' style='text-align:center;'>
                 <div class='glass-label'>Premium Plan</div>
-                <div class='glass-value' style='color:#FFC94A;'>₹299 / Month</div>
+                <div class='glass-value' style='color:#D97706;'>₹299 / Mo</div>
                 <div class='glass-sub'>Instant Activation via UPI</div>
             </div>
             """,
@@ -2875,3 +3432,6 @@ with e3:
 
 st.divider()
 st.caption("FinSight • Financial intelligence workspace")
+
+if st.session_state.get("show_finbot", True):
+    render_finbot_dock(f"**{mood_text}.** {mood_description}", "alert" if mood_key in ("red", "yellow") else "hello")
