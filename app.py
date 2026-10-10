@@ -11,6 +11,7 @@ import base64
 import binascii
 import hashlib
 import html as html_lib
+import json
 import os
 import re
 import sqlite3
@@ -25,15 +26,12 @@ import streamlit as st
 
 # Streamlit's canvas widgets (st.dataframe / st.data_editor / progress) take colours from the Streamlit
 # THEME, not from CSS. .streamlit/config.toml is the reliable way to set it; this is a best-effort fallback.
-# Old line block:
-# for _k, _v in {"base": "light", "primaryColor": "#00D4FF", "backgroundColor": "#FFFFFF", "secondaryBackgroundColor": "#F8FAFC", "textColor": "#0F172A"}.items():
-
-# New Refined Line:
 try:
     for _k, _v in {"base": "light", "primaryColor": "#10B981", "backgroundColor": "#FFFFFF", "secondaryBackgroundColor": "#F4F7F6", "textColor": "#111C24"}.items():
         st._config.set_option(f"theme.{_k}", _v)
 except Exception:
     pass
+
 # ============================================================
 # PAGE CONFIG
 # ============================================================
@@ -216,6 +214,13 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # Migration: remember who has finished the FinBot tour. Accounts that already exist are marked
+    # done, so only accounts created from now on get the first-run tour.
+    user_cols = {row["name"] for row in c.execute("PRAGMA table_info(users)").fetchall()}
+    if "tour_done" not in user_cols:
+        c.execute("ALTER TABLE users ADD COLUMN tour_done INTEGER DEFAULT 0")
+        c.execute("UPDATE users SET tour_done = 1")
+
     c.execute("""CREATE TABLE IF NOT EXISTS workspaces (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -360,6 +365,13 @@ def get_user_by_id(user_id):
 def set_user_plan(user_id, plan):
     conn = get_conn()
     conn.execute("UPDATE users SET plan = ? WHERE id = ?", (plan, user_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_tour_done(user_id):
+    conn = get_conn()
+    conn.execute("UPDATE users SET tour_done = 1 WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
 
@@ -1359,26 +1371,25 @@ def inject_global_css():
 
         :root {
             color-scheme: light;
-            --canvas: #FFFFFF; 
-            --canvas-soft: #F9FAFB; 
+            --canvas: #FFFFFF;
+            --canvas-soft: #F9FAFB;
             --panel: #F4F7F6;
-            --ink: #111C24; 
-            --ink-2: #2D3D4A; 
-            --muted: #6B7280; 
+            --ink: #111C24;
+            --ink-2: #2D3D4A;
+            --muted: #6B7280;
             --faint: #9CA3AF;
-            --border: #E5E7EB; 
+            --border: #E5E7EB;
             --border-soft: #F3F4F6;
-            --cyan: #10B981; 
-            --cyan-ink: #047857; 
+            --cyan: #10B981;
+            --cyan-ink: #047857;
             --cyan-wash: rgba(16, 185, 129, 0.08);
-            --green: #10B981; 
-            --red: #EF4444; 
+            --green: #10B981;
+            --red: #EF4444;
             --amber: #F59E0B;
             --radius: 12px;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
             --focus-glow: 0 0 14px rgba(16, 185, 129, 0.18);
         }
-
 
         /* ---------- canvas & typography ---------- */
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"], .stApp {
@@ -1388,7 +1399,7 @@ def inject_global_css():
         [data-testid="stHeader"] { background: transparent; }
         [data-testid="stDecoration"], [data-testid="stToolbar"] { display: none; }
         footer, #MainMenu { visibility: hidden; }
-        .block-container { max-width: 1550px; padding: 2rem 3rem 5rem 3rem; }
+        .block-container { max-width: 1550px; padding: 3.2rem 3rem 5rem 3rem; }
 
         h1, h2, h3, h4, h5, h6,
         [data-testid="stHeading"] *, [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
@@ -1447,6 +1458,24 @@ def inject_global_css():
             border-color: var(--cyan) !important;
             box-shadow: var(--shadow), var(--focus-glow) !important;
         }
+        /* same box for Streamlit versions whose input wrappers have no data-baseweb attribute */
+        .stApp [data-testid="stTextInputRootElement"], .stApp [data-testid="stNumberInputContainer"],
+        .stApp [data-testid="stTextAreaRootElement"], .stApp [data-testid="stDateInputRoot"],
+        .stApp [data-testid="stSelectbox"] > div:not([data-testid="stWidgetLabel"]) > div {
+            background: #FFFFFF !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+            box-shadow: var(--shadow) !important; overflow: hidden;
+        }
+        .stApp [data-testid="stTextInputRootElement"] :is(div, input, textarea),
+        .stApp [data-testid="stNumberInputContainer"] :is(div, input),
+        .stApp [data-testid="stTextAreaRootElement"] :is(div, textarea),
+        .stApp [data-testid="stDateInputRoot"] :is(div, input),
+        .stApp [data-testid="stSelectbox"] > div:not([data-testid="stWidgetLabel"]) > div :is(div, input) {
+            background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 0 !important;
+        }
+        .stApp [data-testid="stTextInputRootElement"]:focus-within, .stApp [data-testid="stNumberInputContainer"]:focus-within,
+        .stApp [data-testid="stTextAreaRootElement"]:focus-within, .stApp [data-testid="stSelectbox"] > div:not([data-testid="stWidgetLabel"]) > div:focus-within {
+            border-color: var(--cyan) !important; box-shadow: var(--shadow), var(--focus-glow) !important;
+        }
         /* dropdown menus */
         [data-baseweb="popover"] > div {
             background: #FFFFFF !important; border: 1px solid var(--border) !important;
@@ -1468,7 +1497,7 @@ def inject_global_css():
         .stApp .stFormSubmitButton > button p, .stApp .stLinkButton > a p { color: inherit !important; }
         .stApp .stButton > button:hover, .stApp .stDownloadButton > button:hover,
         .stApp .stFormSubmitButton > button:hover, .stApp .stLinkButton > a:hover {
-            border-color: var(--cyan) !important; background: #F5FDFF !important; color: var(--ink) !important; transform: translateY(-1px);
+            border-color: var(--cyan) !important; background: #F0FDF9 !important; color: var(--ink) !important; transform: translateY(-1px);
         }
         .stApp .stButton > button:focus-visible, .stApp .stFormSubmitButton > button:focus-visible,
         .stApp .stDownloadButton > button:focus-visible {
@@ -1494,7 +1523,7 @@ def inject_global_css():
             padding: 22px; min-height: 130px; box-shadow: var(--shadow);
             transition: transform .25s ease, border-color .25s ease;
         }
-        [data-testid="stMetric"]:hover { transform: translateY(-2px); border-color: rgba(0,212,255,0.6); }
+        [data-testid="stMetric"]:hover { transform: translateY(-2px); border-color: rgba(16,185,129,0.6); }
         [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {
             color: var(--muted) !important; font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase;
         }
@@ -1517,8 +1546,29 @@ def inject_global_css():
         [data-baseweb="tab-border"] { background: var(--border) !important; }
         .stProgress > div > div > div > div { background-color: var(--cyan) !important; }
 
+        /* ---------- sidebar: always readable on the light panel ---------- */
+        [data-testid="stSidebar"] { color: var(--ink); }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: var(--ink) !important; }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: var(--ink-2); }
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+            background: #FFFFFF !important; border: 1px dashed #CBD5E1 !important; border-radius: var(--radius) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] *, [data-testid="stSidebar"] [data-testid="stFileUploader"] small { color: var(--ink-2) !important; }
+        [data-testid="stSidebar"] [data-testid="stFileUploader"] button {
+            background: #FFFFFF !important; color: var(--ink) !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+        }
+        /* Streamlit's own collapse / expand arrows: never invisible on a light canvas */
+        [data-testid="stSidebarCollapseButton"] *, [data-testid="stExpandSidebarButton"] *,
+        [data-testid="stSidebarCollapsedControl"] *, [data-testid="collapsedControl"] * { color: var(--ink) !important; fill: var(--ink) !important; }
+        [data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] button, [data-testid="collapsedControl"] button {
+            background: #FFFFFF !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important; box-shadow: var(--shadow) !important;
+        }
+        /* our always-visible show/hide pill (sits above Streamlit's invisible header layer) */
+        .st-key-sb_toggle { position: fixed; top: 12px; right: 18px; z-index: 1000001; width: auto !important; }
+        .st-key-sb_toggle button { min-height: 36px !important; padding: 4px 16px !important; border-radius: 999px !important; }
+
         /* ---------- workspace components ---------- */
-        .hl { background: linear-gradient(transparent 62%, rgba(0,212,255,0.38) 62%); }
+        .hl { background: linear-gradient(transparent 62%, rgba(16,185,129,0.38) 62%); }
         .mood-hero {
             display: flex; align-items: center; gap: 26px; padding: 28px 32px; border-radius: var(--radius);
             border: 1px solid var(--mood-border, var(--border));
@@ -1547,7 +1597,7 @@ def inject_global_css():
             background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;
             min-height: 118px; box-shadow: var(--shadow); transition: transform .25s ease, border-color .25s ease;
         }
-        .glass-card:hover { transform: translateY(-2px); border-color: rgba(0,212,255,0.6); }
+        .glass-card:hover { transform: translateY(-2px); border-color: rgba(16,185,129,0.6); }
         .glass-label { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .glass-value { font-size: 22px; font-weight: 800; margin: 6px 0 4px 0; font-family: "JetBrains Mono", monospace; color: var(--ink); }
         .glass-sub { color: var(--muted); font-size: 13px; }
@@ -1556,7 +1606,7 @@ def inject_global_css():
         .plan-pro { background: rgba(217,119,6,0.09); color: #B45309; border: 1px solid rgba(217,119,6,0.28); }
         .category-badge {
             display:inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
-            background: var(--cyan-wash); color: var(--cyan-ink); border: 1px solid rgba(0,212,255,0.4);
+            background: var(--cyan-wash); color: var(--cyan-ink); border: 1px solid rgba(16,185,129,0.4);
         }
         .section { font-size: 19px; font-weight: 800; color: var(--ink); margin: 26px 0 4px 0; letter-spacing: -0.3px; }
         .helper { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
@@ -1564,7 +1614,7 @@ def inject_global_css():
             background: #FFFFFF; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
             font-size: 14px; color: var(--ink-2); box-shadow: var(--shadow); transition: transform .2s ease, border-color .2s ease;
         }
-        .insight:hover { transform: translateY(-1px); border-color: rgba(0,212,255,0.6); }
+        .insight:hover { transform: translateY(-1px); border-color: rgba(16,185,129,0.6); }
         .insight span { color: var(--muted); } .insight b { color: var(--ink); }
         .action-item-red { border-left: 3px solid #F43F5E; }
         .action-item-yellow { border-left: 3px solid #F59E0B; }
@@ -1597,6 +1647,8 @@ for key, default in {
     "auth_mode": "login",
     "pulse_granularity": "Month",
     "tour_frame": 0,  # 0-based index of the landing-deck frame currently shown
+    "tour_active_field": "None",  # dashboard tour: "None" (undecided), a GUIDE_STEPS name, or "Done"
+    "sidebar_open": True,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -1795,7 +1847,7 @@ def finbot_stage_html(message, badge="hello", mode="hang", anim_id=0):
                 </div>
                 <i class="fb-home"></i>
             </div>
-            <img class="fb-bot" alt="FinBot waving hello" src="{finbot_data_uri(badge)}"/>
+            <img class="fb-bot" alt="FinBot waving hello"{' title="Drag me · double-click to reset"' if mode == "dock" else ""} src="{finbot_data_uri(badge)}"/>
         </div>
     </div>
     """)
@@ -1837,6 +1889,9 @@ def finbot_css():
         /* dock: fixed overlay on the right-hand corner of the workspace */
         .fb-dock { position: fixed; right: 14px; bottom: 4px; z-index: 90; transform: scale(.8); transform-origin: right bottom; }
         .fb-dock .fb-text { font-size: 13.5px; }
+        .fb-dock .fb-bot, .fb-dock .fb-tablet { pointer-events: auto; cursor: grab; touch-action: none; }
+        .fb-dock.fb-dragging .fb-bot, .fb-dock.fb-dragging .fb-tablet { cursor: grabbing; }
+        .fb-dock.fb-dragging .fb-float { animation-play-state: paused; }
 
         @keyframes fb-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
         @keyframes fb-caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
@@ -1925,6 +1980,25 @@ TOUR_FRAMES = [
 ]
 TOUR_LAST = len(TOUR_FRAMES) - 1
 
+GUIDE_MAP = {
+    "Quick Actions": ("⚡ Quick Actions Console", "This is your terminal for high-speed logging. Enter a description and amount right here to update your ledger in about 5 seconds, no nested forms needed."),
+    "Action Center": ("🧭 Action Center Terminal", "I gather my anomaly alerts, budget warnings, and health-score signals right here, ranked by priority so you can fix the critical issues first."),
+    "Business Health Score": ("🩺 Business Health Engine", "I grade your business out of 100 across four parts worth 25 points each: Revenue Momentum, Profitability, Expense Control, and Cash Runway."),
+    "What & Why": ("📊 What & Why Matrix", "This compares your current period with the previous one. It shows which way things moved and which spending category caused your bills to change."),
+    "Financial Pulse": ("📈 Running Financial Position", "This line chart tracks your running cash position day by day. The mint line shows where you've been, and the gray dotted trail projects the next 7 days."),
+    "What Changed": ("🧠 Anomaly Intelligence Node", "I watch your ledger continuously and report in plain English: profit margin swings, cost spikes, and unexpected bills before they escalate."),
+    "Business at a Glance": ("🎯 Operational Control Room", "A quick summary card deck: your cash pressure level for the selected time window, plus key numbers specific to your business type."),
+    "Automatic Highlights": ("✨ Automated Dashboard Highlights", "I scan your metrics on the fly and pull out the specific wins and cash leaks most worth your attention, so you don't have to dig."),
+    "Budgets": ("📊 Category Spending Safeguards", "Set monthly spending caps per category here. Progress bars change color as you approach a limit, keeping you clear of overhead traps."),
+    "Savings Goals": ("🎯 Capital Projections Board", "Set aside money for future purchases or emergency reserves here. Log quick contributions to see how close each goal is."),
+    "Tax Center": ("🧮 Workspace Liability Ledger", "I run the tax numbers for your workspace, sorting GST collected from GST paid and laying out quarterly worksheets."),
+    "Business Highlights": ("↗ Event Spotlight Cards", "These cards spotlight standouts in your numbers, such as your largest cost bucket, so you can see where the money really goes."),
+    "Payment Reminders": ("💬 Invoiced Accounts Receivable", "Track unpaid client invoices here. Tap the WhatsApp button to open a chat with a personalized reminder already written."),
+    "Explore Your Business": ("🔎 Explore Your Business", "Dig deeper here: your spending breakdown by category, transaction activity by employee, and the full editable ledger of every entry."),
+}
+
+GUIDE_STEPS = ["Quick Actions", "Action Center", "Business Health Score", "What & Why", "Financial Pulse", "What Changed", "Business at a Glance", "Automatic Highlights", "Budgets", "Savings Goals", "Tax Center", "Business Highlights", "Payment Reminders", "Explore Your Business"]
+
 
 def inject_landing_css():
     """Deck-only layout. Colors, borders, radius and shadow all come from the global tokens."""
@@ -1962,7 +2036,7 @@ def inject_landing_css():
         .deck-eyebrow { font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
         .deck-eyebrow b { color: var(--ink); }
         .deck-title { font-size: 42px; line-height: 1.06; font-weight: 900; letter-spacing: -1.4px; color: var(--ink); margin: 0 0 16px 0; }
-        .deck-title em { font-style: normal; background: linear-gradient(transparent 62%, rgba(0,212,255,0.38) 62%); }
+        .deck-title em { font-style: normal; background: linear-gradient(transparent 62%, rgba(16,185,129,0.38) 62%); }
         .deck-sub { font-size: 16px; line-height: 1.6; color: var(--muted); max-width: 470px; }
         .deck-grid.solo .deck-sub { margin: 0 auto; }
 
@@ -1988,7 +2062,7 @@ def inject_landing_css():
         /* pagination dots: the active frame glows cyan */
         .deck-dots { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 26px; }
         .deck-dot { width: 8px; height: 8px; border-radius: 999px; background: #CBD5E1; transition: all .3s ease; }
-        .deck-dot.active { width: 26px; background: var(--cyan); box-shadow: 0 0 12px rgba(0,212,255,0.7); }
+        .deck-dot.active { width: 26px; background: var(--cyan); box-shadow: 0 0 12px rgba(16,185,129,0.7); }
         .st-key-tour_next button { min-width: 170px; }
 
         @media (max-width: 820px) {
@@ -2028,10 +2102,78 @@ def _dots_html(idx):
     return f'<div class="deck-dots" role="presentation" aria-label="Frame {idx + 1} of {len(TOUR_FRAMES)}">{dots}</div>'
 
 
-def render_finbot_dock(message, badge="hello"):
+# Drag support for the workspace dock. Streamlit's markdown can't run scripts, so a zero-height component
+# injects this into the page itself. Position is remembered in localStorage; double-click the robot to reset.
+FB_DRAG_JS = """
+(function () {
+  var W = window.parent, doc = W.document;
+  if (W.__fbDragInstalled) { if (W.__fbDragApply) W.__fbDragApply(); return; }
+  W.__fbDragInstalled = true;
+  var KEY = 'fb_dock_pos_v1', DEF_R = 14, DEF_B = 4, SCALE = 0.8, drag = null;
+  function load() { try { return JSON.parse(W.localStorage.getItem(KEY)); } catch (e) { return null; } }
+  function save(p) { try { W.localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {} }
+  function clamp(p) {
+    var w = 430 * SCALE, h = 240 * SCALE;
+    return { r: Math.min(Math.max(p.r, 0), Math.max(0, W.innerWidth - w)),
+             b: Math.min(Math.max(p.b, 0), Math.max(0, W.innerHeight - h)) };
+  }
+  function place(p) {
+    var dock = doc.querySelector('.fb-dock'); if (!dock) return;
+    dock.style.right = p ? p.r + 'px' : ''; dock.style.bottom = p ? p.b + 'px' : '';
+    var r = p ? p.r : DEF_R, b = p ? p.b : DEF_B, g = doc.querySelector('.st-key-fb_guide');
+    if (g) {  /* keep the Next / Skip buttons attached to the robot */
+      var gb = b + 248; if (gb + 56 > W.innerHeight) gb = Math.max(8, b - 56);
+      g.style.right = (r + 4) + 'px'; g.style.bottom = gb + 'px';
+    }
+  }
+  W.__fbDragApply = function () { var p = load(); place(p ? clamp(p) : null); };
+  doc.addEventListener('pointerdown', function (e) {
+    var h = e.target.closest && e.target.closest('.fb-dock .fb-bot, .fb-dock .fb-tablet');
+    var dock = doc.querySelector('.fb-dock');
+    if (!h || !dock || e.button > 0) return;
+    var cs = W.getComputedStyle(dock);
+    drag = { x: e.clientX, y: e.clientY, r: parseFloat(cs.right) || DEF_R, b: parseFloat(cs.bottom) || DEF_B, last: null };
+    dock.classList.add('fb-dragging'); doc.body.style.userSelect = 'none'; e.preventDefault();
+  }, true);
+  doc.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.last = clamp({ r: drag.r - (e.clientX - drag.x), b: drag.b - (e.clientY - drag.y) });
+    place(drag.last);
+  }, true);
+  function end() {
+    if (!drag) return;
+    var dock = doc.querySelector('.fb-dock'); if (dock) dock.classList.remove('fb-dragging');
+    doc.body.style.userSelect = ''; if (drag.last) save(drag.last); drag = null;
+  }
+  doc.addEventListener('pointerup', end, true); doc.addEventListener('pointercancel', end, true);
+  doc.addEventListener('dblclick', function (e) {
+    if (e.target.closest && e.target.closest('.fb-dock .fb-bot')) { try { W.localStorage.removeItem(KEY); } catch (x) {} place(null); }
+  }, true);
+  W.addEventListener('resize', W.__fbDragApply);
+  /* Streamlit re-renders the dock often: re-apply the saved spot whenever it reappears */
+  new W.MutationObserver(function () { clearTimeout(W.__fbT); W.__fbT = setTimeout(W.__fbDragApply, 30); })
+    .observe(doc.body, { childList: true, subtree: true });
+  W.__fbDragApply();
+})();
+"""
+
+
+def enable_finbot_drag():
+    import streamlit.components.v1 as components
+
+    components.html(
+        "<script>var c = " + json.dumps(FB_DRAG_JS) + ";"
+        "try { var s = window.parent.document.createElement('script'); s.textContent = c; window.parent.document.head.appendChild(s); }"
+        "catch (e) { try { eval(c); } catch (e2) {} }</script>",
+        height=0,
+    )
+
+
+def render_finbot_dock(message, badge="hello", anim_id=5):
     """Fixed bottom-right FinBot overlay for the workspace (pointer-events are off, so it never blocks clicks)."""
     st.markdown(finbot_css(), unsafe_allow_html=True)
-    st.markdown(finbot_stage_html(message, badge, "dock", 5), unsafe_allow_html=True)
+    st.markdown(finbot_stage_html(message, badge, "dock", anim_id), unsafe_allow_html=True)
+    enable_finbot_drag()
 
 
 def render_auth_forms():
@@ -2106,6 +2248,7 @@ def render_gateway():
             if idx < TOUR_LAST:
                 st.button("Next Frame →", key="tour_next", type="primary", on_click=_tour_go, kwargs={"step": 1})
 
+
 if st.session_state.user is None:
     render_gateway()
     st.stop()
@@ -2113,6 +2256,10 @@ if st.session_state.user is None:
 current_user = get_user_by_id(st.session_state.user["id"])
 plan = current_user["plan"]
 limits = PLAN_LIMITS[plan]
+
+# First-run onboarding: an account that hasn't finished the FinBot tour starts it automatically.
+if st.session_state.tour_active_field == "None":
+    st.session_state.tour_active_field = "Done" if current_user.get("tour_done") else "Quick Actions"
 
 
 # ============================================================
@@ -2164,6 +2311,67 @@ generated_count = run_due_recurring_transactions(workspace["id"], current_user["
 
 
 # ============================================================
+# SIDEBAR SHOW / HIDE
+# ============================================================
+
+def _toggle_sidebar():
+    st.session_state.sidebar_open = not st.session_state.sidebar_open
+    st.session_state.sb_sync = True
+
+
+def sync_native_sidebar(want_open):
+    """Clicks Streamlit's own expand / collapse control so the real sidebar matches the pill.
+    Runs once per login and once per pill click (never fights a manual toggle in between)."""
+    import streamlit.components.v1 as components
+
+    st.session_state.sb_nonce = st.session_state.get("sb_nonce", 0) + 1
+    components.html(
+        """<script>/*n%d*/
+        (function () {
+          var want = %s, tries = 0, lastClick = 0, doc = window.parent.document;
+          var EXPAND = ['[data-testid="stExpandSidebarButton"]', '[data-testid="stSidebarCollapsedControl"] button',
+                        '[data-testid="collapsedControl"] button', '[data-testid="stSidebarCollapsedControl"]'];
+          var COLLAPSE = ['[data-testid="stSidebarCollapseButton"] button', '[data-testid="stSidebarCollapseButton"]',
+                          '[data-testid="baseButton-header"]'];
+          function isOpen(sb) {
+            var a = sb.getAttribute('aria-expanded');
+            if (a !== null) return a === 'true';
+            var r = sb.getBoundingClientRect(); return r.width > 60 && r.right > 60;
+          }
+          function click(list) {
+            for (var i = 0; i < list.length; i++) { var b = doc.querySelector(list[i]); if (b) { b.click(); return; } }
+          }
+          var timer = setInterval(function () {
+            tries++;
+            var sb = doc.querySelector('[data-testid="stSidebar"]');
+            if (sb) {
+              if (isOpen(sb) === want) { clearInterval(timer); return; }
+              if (Date.now() - lastClick > 900) { lastClick = Date.now(); click(want ? EXPAND : COLLAPSE); }
+            }
+            if (tries > 40) clearInterval(timer);
+          }, 200);
+        })();
+        </script>""" % (st.session_state.sb_nonce, "true" if want_open else "false"),
+        height=0,
+    )
+
+
+with st.container(key="sb_toggle"):
+    st.button("☰ Hide menu" if st.session_state.sidebar_open else "☰ Show menu", key="sb_toggle_btn", on_click=_toggle_sidebar)
+
+if st.session_state.get("sb_sync", True):  # first dashboard run after login, or the pill was clicked
+    st.session_state.sb_sync = False
+    sync_native_sidebar(st.session_state.sidebar_open)
+
+if not st.session_state.sidebar_open:
+    st.markdown(
+        "<style>[data-testid='stSidebar'], [data-testid='stSidebarCollapsedControl'], [data-testid='collapsedControl'], "
+        "[data-testid='stExpandSidebarButton'] { display: none !important; }</style>",
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -2175,10 +2383,19 @@ with st.sidebar:
 
     st.toggle("Show FinBot", value=True, key="show_finbot")
 
+    def _replay_tour():
+        st.session_state.tour_active_field = "Quick Actions"
+
+    if st.session_state.tour_active_field == "Done":
+        st.button("↺ Replay FinBot tour", key="fb_replay", use_container_width=True, on_click=_replay_tour)
+
     if st.button("Log out", use_container_width=True):
         st.session_state.user = None
         st.session_state.workspace_id = None
-        st.session_state.tour_frame = TOUR_LAST  # skip the tour for returning users
+        st.session_state.tour_frame = TOUR_LAST  # returning users land on the login frame
+        st.session_state.tour_active_field = "None"  # re-decide for whoever logs in next
+        st.session_state.sidebar_open = True
+        st.session_state.sb_sync = True
         st.rerun()
 
     st.divider()
@@ -2629,7 +2846,7 @@ for col, (label, value, change, direction) in zip(metric_cols, metric_data):
 
 st.markdown('<div class="section" style="margin-top:28px;">📈 Financial Pulse</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="helper">The line is the running financial position. Green means the position improved; red means it moved lower. Purple is the trend projection.</div>',
+    '<div class="helper">The mint line is your running financial position, day by day. The gray dotted trail projects the next 7 days.</div>',
     unsafe_allow_html=True,
 )
 
@@ -2640,20 +2857,20 @@ else:
     forecast = forecast_next_days(daily, days=7)
 
     fig = go.Figure()
+
     fig.add_trace(
         go.Scatter(
             x=daily["date"],
             y=daily["close"],
             mode="lines+markers",
-            line=dict(color="#10B981", width=3),  # Updated to Neo-Mint
+            line=dict(color="#10B981", width=3),
             marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color="#10B981")),
             fill="tozeroy",
-            fillcolor="rgba(16, 185, 129, 0.04)",  # Soft clean mint glow tint
+            fillcolor="rgba(16, 185, 129, 0.04)",
             name="Position",
             hovertemplate="<b>%{x|%d %b}</b><br>Position: " + currency_symbol + "%{y:,.0f}<extra></extra>",
         )
     )
-
 
     if forecast is not None:
         forecast_x = pd.concat([daily[["date", "close"]].tail(1), forecast], ignore_index=True)
@@ -3269,10 +3486,13 @@ token_input = st.text_input("🔑 Enter your Premium Access Token to unlock", ty
 
 # Define your master token phrase here (Change 'FinsightPro2026' to whatever you want!)
 # Streamlit will securely pull this word from the server dashboard hidden settings
-MASTER_TOKEN = st.secrets["PREMIUM_KEY"]
+try:
+    MASTER_TOKEN = str(st.secrets["PREMIUM_KEY"])
+except Exception:  # no secrets.toml / key not set -> premium stays locked
+    MASTER_TOKEN = ""
 
 
-if token_input == MASTER_TOKEN:
+if MASTER_TOKEN and token_input == MASTER_TOKEN:
     st.success("🔓 Premium Intel Active.")
     
     intel_col1, intel_col2 = st.columns(2, gap="large")
@@ -3433,5 +3653,44 @@ with e3:
 st.divider()
 st.caption("FinSight • Financial intelligence workspace")
 
+def _finish_tour():
+    st.session_state.tour_active_field = "Done"
+    mark_tour_done(st.session_state.user["id"])
+
+
+def _next_tour_step():
+    i = GUIDE_STEPS.index(st.session_state.tour_active_field)
+    if i >= len(GUIDE_STEPS) - 1:
+        _finish_tour()
+    else:
+        st.session_state.tour_active_field = GUIDE_STEPS[i + 1]
+
+
 if st.session_state.get("show_finbot", True):
-    render_finbot_dock(f"**{mood_text}.** {mood_description}", "alert" if mood_key in ("red", "yellow") else "hello")
+    msg = f"**{mood_text}.** {mood_description}"
+    badge_style, anim = ("alert" if mood_key in ("red", "yellow") else "hello"), 5
+    field = st.session_state.tour_active_field
+
+    if field in GUIDE_MAP:
+        idx = GUIDE_STEPS.index(field)
+        title, text = GUIDE_MAP[field]
+        msg = f"**{title} ({idx + 1}/{len(GUIDE_STEPS)})** {text}"  # a space, not <br>: dialogue text is HTML-escaped
+        badge_style = "pulse" if "Actions" in title or "Highlights" in title else "shield"
+        anim = 6 + (idx % 2)  # alternating ids make the typing replay on every step
+
+    render_finbot_dock(msg, badge_style, anim)
+
+    if field in GUIDE_MAP:
+        st.markdown(
+            "<style>.st-key-fb_guide{position:fixed;right:18px;bottom:252px;width:380px;z-index:100;}"
+            "@media (max-width:1100px){.st-key-fb_guide{display:none;}}</style>",
+            unsafe_allow_html=True,
+        )
+        with st.container(key="fb_guide"):
+            g1, g2 = st.columns(2)
+            with g1:
+                st.button("Skip tour ✕", key="fb_skip_master", use_container_width=True, on_click=_finish_tour)
+            with g2:
+                last = idx == len(GUIDE_STEPS) - 1
+                st.button("Finish ✓" if last else "Next ➔", key="fb_next_master", type="primary",
+                          use_container_width=True, on_click=_next_tour_step)
