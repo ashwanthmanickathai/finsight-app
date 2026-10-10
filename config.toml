@@ -1,0 +1,10 @@
+# Place at ./.streamlit/config.toml next to app.py, then restart `streamlit run app.py`.
+# Streamlit's canvas widgets (st.dataframe, st.data_editor) take their colours from this theme, not from CSS.
+[theme]
+base = "light"
+primaryColor = "#10B981"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F7F6"
+textColor = "#111C24"
+font = "sans serif"
+ 
