@@ -567,6 +567,85 @@ def transaction_count(workspace_id):
     return n
 
 
+# ------------------------------------------------------------
+# DEMO DATA — one-click sample shop for brand-new workspaces
+# ------------------------------------------------------------
+# Each row: (month, day, description, amount, type, category, employee,
+#            gst_applicable, invoice_status, customer_name, customer_phone)
+# "prev" = last calendar month, "curr" = this month (day is capped at today so nothing is future-dated).
+# The numbers are deliberately shaped so every intelligence card has something to show:
+#   * healthy all-time margin, but this month's margin is well below last month  -> margin-collapse alert
+#   * 4 courier costs with the latest one ~2.5x the usual                        -> spike alert
+#   * 2 unpaid invoices with customer contacts                                   -> Payment Reminders + WhatsApp
+#   * GST-flagged sales and purchases                                            -> Tax Center
+DEMO_TRANSACTIONS = [
+    ("prev",  3, "Customer Payment for Dress",                 2500, "income",  "Revenue",   "",      1, "Paid", "", ""),
+    ("prev",  5, "Fabric & Material Purchase",                 4200, "expense", "Suppliers", "",      1, "",     "", ""),
+    ("prev",  6, "Material Courier Cost",                       350, "expense", "Transport", "",      0, "",     "", ""),
+    ("prev", 10, "Customer Payment for Bridal Lehenga",        9500, "income",  "Revenue",   "",      1, "Paid", "", ""),
+    ("prev", 14, "Shop Rent",                                  5000, "expense", "Rent",      "",      0, "",     "", ""),
+    ("prev", 19, "Customer Payment for Saree Order",           6000, "income",  "Revenue",   "",      1, "Paid", "", ""),
+    ("prev", 24, "Material Courier Cost",                       320, "expense", "Transport", "",      0, "",     "", ""),
+    ("curr",  2, "Customer Payment for Kurti Set",             3200, "income",  "Revenue",   "",      1, "Paid", "", ""),
+    ("curr",  3, "Shop Rent",                                  5000, "expense", "Rent",      "",      0, "",     "", ""),
+    ("curr",  5, "Material Courier Cost",                       380, "expense", "Transport", "",      0, "",     "", ""),
+    ("curr",  8, "Wedding Gown Order - Invoice",              11500, "income",  "Revenue",   "",      1, "Invoiced \u2014 unpaid", "Priya Sharma", "9876500001"),
+    ("curr", 11, "Instagram Ads Campaign",                     2800, "expense", "Marketing", "",      1, "",     "", ""),
+    ("curr", 14, "Embroidery Labour Wages",                    6000, "expense", "Salaries",  "Meena", 0, "",     "", ""),
+    ("curr", 16, "Party Wear Dress - Invoice",                 4500, "income",  "Revenue",   "",      1, "Invoiced \u2014 unpaid", "Anita Rao", "9876500002"),
+    ("curr", 18, "Material Courier Cost (Express)",             950, "expense", "Transport", "",      0, "",     "", ""),
+]
+
+# Monthly budgets so the Budgets panel, Expense Control score and Action Center have live data too.
+DEMO_BUDGETS = {"Marketing": 3000, "Transport": 1000, "Rent": 6000}
+
+
+def load_demo_data(workspace_id, user_id):
+    """Seeds 15 sample transactions (+ 3 budgets) into a workspace that has NO transactions yet.
+    Runs as a single atomic transaction and re-checks emptiness inside it, so a double-click or a
+    second browser tab can never insert the sample set twice. Returns the number of rows inserted
+    (0 means the workspace already had data and nothing was changed)."""
+    today = date.today()
+    curr_start = today.replace(day=1)
+    prev_start = (curr_start - timedelta(days=1)).replace(day=1)
+
+    rows = []
+    for month, day, desc, amount, tx_type, category, employee, gst, invoice, cust, phone in DEMO_TRANSACTIONS:
+        d = prev_start.replace(day=day) if month == "prev" else curr_start.replace(day=min(day, today.day))
+        rows.append((
+            workspace_id, d.strftime("%Y-%m-%d"), desc, float(amount), tx_type, employee,
+            category, int(gst), invoice, user_id, cust, phone,
+        ))
+
+    conn = get_conn()
+    try:
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE workspace_id = ? AND deleted = 0", (workspace_id,)
+        ).fetchone()[0]
+        if existing > 0:
+            return 0
+        conn.executemany(
+            """INSERT INTO transactions
+               (workspace_id, date, description, amount, type, employee, category,
+                gst_applicable, invoice_status, created_by, customer_name, customer_phone)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
+        for cat, limit in DEMO_BUDGETS.items():
+            conn.execute(
+                """INSERT INTO budgets (workspace_id, category, monthly_limit) VALUES (?,?,?)
+                   ON CONFLICT(workspace_id, category) DO NOTHING""",
+                (workspace_id, cat, float(limit)),
+            )
+        conn.commit()
+        return len(rows)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ============================================================
 # CATEGORY RULES (learned + default keyword rules + business-category tags)
 # ============================================================
@@ -2605,6 +2684,31 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---------- one-time confirmation after loading demo data ----------
+if st.session_state.pop("demo_just_loaded", False):
+    st.success("✨ Demo data loaded — scroll down to explore the charts, Mood Radar and Action Center. "
+               "You can edit or delete any sample row from the transactions table.")
+
+# ---------- empty-workspace demo loader (appears only while there are zero transactions) ----------
+if all_tx.empty and can_edit:
+    st.markdown(
+        """
+        <div class='glass-card' style='text-align:center;padding:26px 20px;margin-bottom:10px;'>
+            <div class='glass-label'>Your workspace is empty</div>
+            <div style='font-size:22px;font-weight:800;margin:6px 0;'>See FinSight in action — instantly</div>
+            <div class='glass-sub'>One click adds 15 realistic shop transactions (sales, courier costs, rent, ads, wages,
+            unpaid invoices) so the charts, Business Mood Radar and Action Center fill up with live numbers.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _, demo_col, _ = st.columns([1, 2, 1])
+    with demo_col:
+        if st.button("✨ Load Demo Analytics Data", type="primary", use_container_width=True, key="load_demo_data_btn"):
+            if load_demo_data(workspace["id"], current_user["id"]):
+                st.session_state["demo_just_loaded"] = True
+            st.rerun()
+
 # ---------- action bar ----------
 if can_edit:
     st.markdown("##### ⚡ Quick actions")
@@ -3694,3 +3798,4 @@ if st.session_state.get("show_finbot", True):
                 last = idx == len(GUIDE_STEPS) - 1
                 st.button("Finish ✓" if last else "Next ➔", key="fb_next_master", type="primary",
                           use_container_width=True, on_click=_next_tour_step)
+
